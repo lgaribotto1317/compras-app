@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { SECTIONS, PRIORIDAD_ORDER, CAMPOS_UNICOS } from '../lib/constants';
+import { SECTIONS, PRIORIDAD_ORDER, CAMPOS_UNICOS, CONSOLIDA_EN } from '../lib/constants';
 import { nowISO } from '../lib/helpers';
 import {
   supabase,
@@ -209,6 +209,7 @@ export function useSolicitudes({ onError } = {}) {
       proveedorAdjudicado: 'Proveedor adjudicado',
       monto:              'Monto',
       rmaNumber:          'Número de RMA',
+      cmaNumber:          'Número de CMA',
       ocNumber:           'Número de OC'
     };
 
@@ -247,13 +248,26 @@ export function useSolicitudes({ onError } = {}) {
 
     const hasAttachmentChanges = toUpload.length > 0 || toDelete.length > 0;
 
-    // Si no cambió nada (ni campos ni adjuntos), no tocamos la base
-    if (changedFields.length === 0 && !hasAttachmentChanges) {
+    // Cambio de código de proveedor (preferido o adjudicado) sin cambio de
+    // nombre: pasa cuando se "normaliza" un proveedor de texto libre a uno
+    // de la lista con el mismo legalName. El código NO se trackea como línea
+    // de historial (es metadato derivado), pero SÍ tiene que persistir, así
+    // que lo contamos para decidir si corremos el UPDATE.
+    const codeChanged =
+      ('proveedorCodigo' in newData &&
+        (prevTask.proveedorCodigo ?? null) !== (newData.proveedorCodigo ?? null)) ||
+      ('proveedorAdjudicadoCodigo' in newData &&
+        (prevTask.proveedorAdjudicadoCodigo ?? null) !== (newData.proveedorAdjudicadoCodigo ?? null));
+
+    const runUpdate = changedFields.length > 0 || codeChanged;
+
+    // Si no cambió nada (ni campos ni código ni adjuntos), no tocamos la base
+    if (!runUpdate && !hasAttachmentChanges) {
       return { ok: true, noop: true };
     }
 
-    // Update en solicitudes (solo si cambiaron campos)
-    if (changedFields.length > 0) {
+    // Update en solicitudes (si cambiaron campos trackeados o el código)
+    if (runUpdate) {
       const updateRow = taskToRow(newData);
       const { error: updErr } = await supabase
         .from('solicitudes')
@@ -264,13 +278,16 @@ export function useSolicitudes({ onError } = {}) {
         return { ok: false, error: updErr.message };
       }
 
-      // Insert del evento "editada" con los campos modificados
-      await appendHistoryEvent(id, {
-        action: 'editada',
-        section: prevTask.section,
-        fieldsChanged: changedFields,
-        changes
-      });
+      // Evento "editada": solo si hubo cambios de campos visibles. Un cambio
+      // de código solo (normalización) actualiza la fila sin emitir evento.
+      if (changedFields.length > 0) {
+        await appendHistoryEvent(id, {
+          action: 'editada',
+          section: prevTask.section,
+          fieldsChanged: changedFields,
+          changes
+        });
+      }
     }
 
     // Upload de adjuntos nuevos (serie, tolerancia a fallos parciales)
@@ -367,6 +384,117 @@ export function useSolicitudes({ onError } = {}) {
 
     await loadAll();
     return { ok: true, nextSection };
+  }
+
+  // advanceTasks: avance CONSOLIDADO de N solicitudes en una sola operación
+  // (consolidación N→1). Asigna los mismos valores (incluido el número
+  // compartido del grupo: rmaNumber / cmaNumber / ocNumber) a todas las
+  // filas seleccionadas y las mueve a la próxima sección.
+  //
+  //   ids        : array de ids de solicitudes (o uno solo).
+  //   formValues : valores del step (número + campos), iguales para todas.
+  //   step       : FLOW_STEPS[fromSection] (de dónde sale el avance).
+  //
+  // Atomicidad (decisión documentada): NO es una transacción única — el
+  // cliente supabase-js no lo permite. Son DOS statements: un bulk UPDATE
+  // (atómico para las filas; el trigger valida cada una) y un bulk INSERT
+  // de history_events. Si el INSERT de history falla, las filas YA avanzaron
+  // (mismo modelo no-transaccional que el resto del hook). Se reporta y el
+  // reload refleja el estado real. Si esto molesta, se migra a un RPC.
+  //
+  // Unicidad reescrita: reemplaza al índice único de Postgres (dropeado para
+  // habilitar números compartidos). Un número asignado acá no puede pertenecer
+  // a NINGUNA fila fuera de la selección → conserva "un número = un grupo".
+  async function advanceTasks(ids, formValues, step) {
+    const idList = Array.isArray(ids) ? ids : [ids];
+    if (idList.length === 0) {
+      return { ok: false, error: 'No hay solicitudes seleccionadas.' };
+    }
+
+    const idSet  = new Set(idList);
+    const rows   = tasks.filter(t => idSet.has(t.id));
+    const active = rows.filter(t => !t.cancelledAt && !t.deletedAt);
+    if (active.length === 0) {
+      return { ok: false, error: 'Las solicitudes seleccionadas no se pueden avanzar (canceladas o eliminadas).' };
+    }
+
+    // Todas deben salir de la MISMA sección: el trigger valida la transición
+    // por fila y rebotaría toda la sentencia si hubiera secciones mezcladas.
+    const fromSections = [...new Set(active.map(t => t.section))];
+    if (fromSections.length > 1) {
+      return { ok: false, error: 'Solo se pueden avanzar juntas solicitudes de la misma etapa.' };
+    }
+    const fromSection = fromSections[0];
+    const nextSection = step.next;
+
+    // Colisión cross-grupo: el número no puede estar usado por una fila
+    // fuera de la selección (dentro se comparte = es el grupo).
+    const activeIds = new Set(active.map(t => t.id));
+    for (const key of Object.keys(CAMPOS_UNICOS)) {
+      const val = formValues[key];
+      if (val == null || val === '') continue;
+      const norm = String(val).trim().toLowerCase();
+      const collision = tasks.find(t =>
+        !activeIds.has(t.id) &&
+        String(t[key] ?? '').trim().toLowerCase() === norm
+      );
+      if (collision) {
+        return {
+          ok: false,
+          error: `${CAMPOS_UNICOS[key]} "${val}" ya pertenece a otro grupo (${collision.numero || collision.id}). Cada número identifica un solo grupo.`
+        };
+      }
+    }
+
+    // Bulk UPDATE. taskToRow emite solo las keys presentes → no pisa otras
+    // columnas. `completed` se deriva de section en rowToTask, no se envía.
+    const updateRow = taskToRow({ ...formValues, section: nextSection });
+    const targetIds = [...activeIds];
+
+    const { error: updErr } = await supabase
+      .from('solicitudes')
+      .update(updateRow)
+      .in('id', targetIds);
+    if (updErr) {
+      reportError('Avanzar solicitudes', updErr);
+      return { ok: false, error: updErr.message };
+    }
+
+    // Bulk INSERT de history: un evento por fila.
+    // Si esto FUSIONA (avance desde una etapa consolidable con >1 fila),
+    // guardamos un marcador `_consolidacion` para que la trazabilidad deje
+    // constancia de qué se fusionó (nivel + números de los hijos).
+    let consolidacion = null;
+    if (CONSOLIDA_EN.includes(fromSection) && targetIds.length > 1) {
+      if (fromSection === 'rma_solicitada') {
+        consolidacion = {
+          nivel:   'solicitud',
+          count:   active.length,
+          numeros: active.map(t => t.numero).filter(Boolean)
+        };
+      } else {
+        // rma_generada → la CMA fusiona RMAs distintos
+        const rmas = [...new Set(active.map(t => t.rmaNumber).filter(Boolean))];
+        consolidacion = { nivel: 'rma', count: rmas.length, numeros: rmas };
+      }
+    }
+
+    const historyRows = targetIds.map(id =>
+      historyEventToRow(id, {
+        action: step.label,
+        from:   fromSection,
+        to:     nextSection,
+        values: consolidacion ? { ...formValues, _consolidacion: consolidacion } : formValues
+      })
+    );
+    const { error: histErr } = await supabase.from('history_events').insert(historyRows);
+    if (histErr) {
+      reportError('Registrar eventos de historial', histErr);
+      // No rollback (consistente con appendHistoryEvent).
+    }
+
+    await loadAll();
+    return { ok: true, nextSection, count: targetIds.length };
   }
 
   // softDeleteTask: marca la solicitud como soft-deleted (deleted_at = NOW).
@@ -540,7 +668,7 @@ export function useSolicitudes({ onError } = {}) {
 
       if (search) {
         const q   = search.toLowerCase();
-        const hay = [t.name, t.solicitante, t.area, t.proveedor, t.descripcionDetallada, t.rmaNumber, t.ocNumber]
+        const hay = [t.name, t.solicitante, t.area, t.proveedor, t.proveedorAdjudicado, t.descripcionDetallada, t.rmaNumber, t.cmaNumber, t.ocNumber]
           .filter(Boolean).join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
@@ -592,6 +720,7 @@ export function useSolicitudes({ onError } = {}) {
     createTask,
     editTask,
     advanceTask,
+    advanceTasks,      // consolidación N→1: avance masivo (Tanda 1)
     deleteTask,        // alias: hace soft delete
     softDeleteTask,    // explícito (mismo comportamiento que deleteTask)
     cancelTask,        // Bloque 4

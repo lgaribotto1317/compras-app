@@ -7,6 +7,7 @@ import { AREAS, PRIORIDADES, MAX_TOTAL_STORAGE } from '../../lib/constants';
 import { processFile, fmtBytes, revokePreviewUrls } from '../../lib/helpers';
 import { getSignedUrl } from '../../lib/supabase';
 import { ModalShell, Field, ModalActions } from '../../components/ModalShell';
+import { ProveedorCombobox } from '../../components/ProveedorCombobox';
 
 // ─── AttachmentsField ─────────────────────────────────────────────
 // Renderiza la lista de adjuntos del form. Cada attachment puede ser:
@@ -136,7 +137,7 @@ function AttachmentsField({ attachments, onAdd, onRemove, uploading, error, requ
 }
 
 // ─── TaskFormModal ────────────────────────────────────────────────
-export function TaskFormModal({ mode, task, onClose, onSubmit, defaultSolicitante = '' }) {
+export function TaskFormModal({ mode, task, onClose, onSubmit, defaultSolicitante = '', proveedores = [], loadingProveedores = false }) {
   const [form, setForm] = useState({
     name:                task?.name                || '',
     // En modo create, autocompletar con defaultSolicitante (nombre del
@@ -146,6 +147,7 @@ export function TaskFormModal({ mode, task, onClose, onSubmit, defaultSolicitant
     area:                task?.area                || AREAS[0],
     descripcionDetallada: task?.descripcionDetallada || '',
     proveedor:           task?.proveedor           || '',
+    proveedorCodigo:     task?.proveedorCodigo     || null,
     prioridad:           task?.prioridad           || 'Media',
     paradaDePlanta:      task?.paradaDePlanta      || false,
     auditoriaInspeccion: task?.auditoriaInspeccion || false,
@@ -235,6 +237,7 @@ export function TaskFormModal({ mode, task, onClose, onSubmit, defaultSolicitant
       area:                form.area,
       descripcionDetallada: form.descripcionDetallada.trim(),
       proveedor:           form.proveedor.trim(),
+      proveedorCodigo:     form.proveedor.trim() ? form.proveedorCodigo : null,
       prioridad:           form.prioridad,
       paradaDePlanta:      form.paradaDePlanta,
       auditoriaInspeccion: form.auditoriaInspeccion,
@@ -307,12 +310,15 @@ export function TaskFormModal({ mode, task, onClose, onSubmit, defaultSolicitant
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Proveedor preferido">
-              <input
-                type="text"
+              <ProveedorCombobox
                 value={form.proveedor}
-                onChange={e => setForm({ ...form, proveedor: e.target.value })}
-                placeholder="Nombre del proveedor"
-                className="form-input"
+                codigo={form.proveedorCodigo}
+                proveedores={proveedores}
+                loading={loadingProveedores}
+                placeholder="Buscar por nombre o código..."
+                onChange={({ name, codigo }) =>
+                  setForm(f => ({ ...f, proveedor: name, proveedorCodigo: codigo }))
+                }
               />
             </Field>
             <Field label="Prioridad">

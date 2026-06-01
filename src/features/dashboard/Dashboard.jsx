@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import {
-  BarChart3, Activity, CheckCircle2, Hourglass, Flame,
+  Activity, CheckCircle2, Hourglass, Flame,
   AlertTriangle, ShieldCheck, Clock, Receipt, FileCheck2,
   ShoppingCart, Package, ArrowUpRight, ChevronRight, CircleDot,
   Calendar, XCircle
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell,
-  AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid
 } from 'recharts';
 import { SECTIONS, SECTION_BY_ID, PRIORIDADES } from '../../lib/constants';
 import { fmtDate, timeAgo } from '../../lib/helpers';
@@ -115,7 +115,7 @@ function AlertRow({ alert, onClick }) {
   );
 }
 
-function ActivityRow({ activity, onClick }) {
+function ActivityRow({ activity, onClick, resolveUserName }) {
   const { task, event } = activity;
   const fromSec = event.from ? SECTION_BY_ID[event.from] : null;
   const toSec   = event.to   ? SECTION_BY_ID[event.to]   : SECTION_BY_ID[task.section];
@@ -137,7 +137,7 @@ function ActivityRow({ activity, onClick }) {
               className="text-[10px] text-slate-500 font-medium"
               title={event.userEmail}
             >
-              · {event.userEmail.split('@')[0]}
+              · {resolveUserName ? resolveUserName(event) : event.userEmail.split('@')[0]}
             </span>
           )}
           {fromSec && toSec && (
@@ -195,6 +195,44 @@ function PriorityBreakdown({ stats }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function BacklogTrend({ data }) {
+  const total = (data || []).reduce((acc, d) => acc + (d.total || 0), 0);
+  if (!data || data.length === 0 || total === 0) {
+    return <EmptyChart label="Sin datos históricos de backlog" />;
+  }
+  const cols = [
+    { key: '0-15',  name: '0-15 días',  color: '#10b981' },
+    { key: '16-30', name: '16-30 días', color: '#eab308' },
+    { key: '31-60', name: '31-60 días', color: '#f97316' },
+    { key: '60+',   name: '> 60 días',  color: '#ef4444' }
+  ];
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-3 mb-2 text-[11px]">
+        {cols.map(c => (
+          <div key={c.key} className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c.color }}></span>
+            <span className="text-slate-600 font-medium">{c.name}</span>
+          </div>
+        ))}
+      </div>
+      <div className="h-64 -ml-2">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="2 4" stroke="#e2e8f0" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748b', fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={6} angle={-45} textAnchor="end" height={48} />
+            <YAxis tick={{ fontSize: 10, fill: '#64748b', fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
+            <Tooltip contentStyle={{ background: '#0f172a', border: 'none', borderRadius: 8, fontSize: 11, color: '#f8fafc', padding: '6px 10px', fontFamily: 'JetBrains Mono, monospace' }} labelStyle={{ color: '#94a3b8', fontSize: 10, marginBottom: 2 }} cursor={{ fill: 'rgba(148,163,184,0.1)' }} />
+            {cols.map(c => (
+              <Bar key={c.key} dataKey={c.key} stackId="b" fill={c.color} name={c.name} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -552,7 +590,8 @@ export function Dashboard({
   modalChips = [],
   onClearModalFilters,
   onGoToKanban,
-  onCardClick
+  onCardClick,
+  resolveUserName
 }) {
   const [period, setPeriod] = useState(DEFAULT_PERIOD);
 
@@ -581,61 +620,59 @@ export function Dashboard({
         onClear={clearAll}
       />
 
-      {/* Selector de período */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 sm:px-5 py-3">
-        <div className="flex items-start gap-3 flex-wrap">
-          <div className="flex items-center gap-2 shrink-0">
-            <Calendar size={14} className="text-slate-500" />
-            <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Período</span>
+      {/* Período + stats — dos boxes, lado a lado (sin la fecha) */}
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-5">
+        {/* Box período */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 sm:px-5 py-3 lg:flex-[3] min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 shrink-0">
+              <Calendar size={14} className="text-slate-500" />
+              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Período</span>
+            </div>
+            <div className="flex-1 min-w-[280px]">
+              <PeriodSelector period={period} onChange={setPeriod} />
+            </div>
           </div>
-          <div className="flex-1 min-w-[280px]">
-            <PeriodSelector period={period} onChange={setPeriod} />
+        </div>
+        {/* Box stats */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 sm:px-5 py-3 lg:flex-[2] flex items-center">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+            <HeroStat label="Total"        value={stats.totales} />
+            <HeroStat label="En curso"     value={stats.enCurso} />
+            <HeroStat label="Finalizadas"  value={stats.finalizadas} />
+            <HeroStat label="% cierre"     value={`${stats.tasaFinalizacion}%`} accent={stats.tasaFinalizacion >= 70 ? 'emerald' : 'orange'} />
+            <HeroStat label="Tiempo prom." value={stats.tiempoPromedioCierre !== null ? `${stats.tiempoPromedioCierre}d` : '—'} />
           </div>
         </div>
       </div>
 
-      {/* Hero */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-5 py-4 flex flex-wrap items-center gap-x-8 gap-y-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-sky-50 border border-sky-100 flex items-center justify-center">
-              <BarChart3 size={18} className="text-sky-600" strokeWidth={2.2} />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Dashboard</p>
-              <p className="font-mono text-sm text-slate-900 font-semibold uppercase">
-                {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-            </div>
+      {/* Lead time: RMA → OC — primer gráfico, ancho completo. Snapshot de lo
+          que está esperando OC ahora (RMAs/CMAs distintas, no solicitudes). */}
+      <DashCard title="Lead time: RMA → OC" subtitle={`${stats.totalEnRmaGenerada} esperando OC · días desde RMA generada`} accent="sky">
+        {stats.totalEnRmaGenerada > 0 && (
+          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-4 pb-3 border-b border-slate-100">
+            <HeroStat label="Promedio"     value={`${stats.esperaRmaOc.promedio} d`} accent="sky" />
+            <HeroStat label="Mediana"      value={`${stats.esperaRmaOc.mediana} d`} />
+            <HeroStat label="Mín – Máx"    value={`${stats.esperaRmaOc.min} – ${stats.esperaRmaOc.max} d`} />
+            <HeroStat label="Esperando OC" value={stats.esperaRmaOc.n} />
           </div>
-          <div className="hidden sm:block w-px h-10 bg-slate-200"></div>
-          <HeroStat label="Total"    value={stats.totales} />
-          <HeroStat label="En curso" value={stats.enCurso} />
-          <HeroStat label="Cerradas" value={stats.finalizadas} />
-          <HeroStat label="% cierre" value={`${stats.tasaFinalizacion}%`} accent={stats.tasaFinalizacion >= 70 ? 'emerald' : 'orange'} />
-        </div>
-      </div>
+        )}
+        <StageAging buckets={stats.aging_rma} buckCfg={stats.buckets_rma} compliance={stats.compliance_rma} total={stats.totalEnRmaGenerada} />
+      </DashCard>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard icon={Activity}     label="En curso"      value={stats.enCurso}  sub={`${stats.totales} totales`} accent="sky" />
-        <KpiCard icon={CheckCircle2} label="Finalizadas"   value={stats.finalizadas} sub={`${stats.tasaFinalizacion}% tasa cierre`} accent="emerald" />
-        <KpiCard icon={Hourglass}    label="Tiempo prom."  value={stats.tiempoPromedioCierre !== null ? `${stats.tiempoPromedioCierre}d` : '—'} sub="ciclo completo" accent="violet" />
-        <KpiCard icon={Flame}        label="Prioridad alta" value={stats.altaPrioridad} sub={stats.paradaPlanta > 0 ? `${stats.paradaPlanta} parada planta` : 'sin paradas'} accent={stats.altaPrioridad > 0 ? 'red' : 'slate'} />
-      </div>
+      <DashCard title="Backlog RMA sin OC (evolución)" subtitle="Por semana, según antigüedad desde Generar RMA" accent="orange">
+        <BacklogTrend data={stats.backlogSemanal} />
+      </DashCard>
 
       <PendientesUnificado stats={stats} onGoToKanban={onGoToKanban} />
 
-      {/* Antigüedad */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <DashCard title="Antigüedad: Sin → Con presupuesto" subtitle={`${stats.totalSinPresupuesto} sin presupuesto · días desde creación`} accent="emerald">
+      {/* Lead time restantes — 50/50. RMA→OC ya está arriba (full width). */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <DashCard title="Lead time: Sin → Con presupuesto" subtitle={`${stats.totalSinPresupuesto} sin presupuesto · días desde creación`} accent="emerald">
           <StageAging buckets={stats.aging_presupuesto} buckCfg={stats.buckets_presupuesto} compliance={stats.compliance_presupuesto} total={stats.totalSinPresupuesto} />
         </DashCard>
-        <DashCard title="Antigüedad: Solicitud → RMA"        subtitle={`${stats.totalEnRmaSolicitada} esperando RMA · días desde creación`} accent="orange">
+        <DashCard title="Lead time: Solicitud → RMA"        subtitle={`${stats.totalEnRmaSolicitada} esperando RMA · días desde creación`} accent="orange">
           <StageAging buckets={stats.aging_solicitud}    buckCfg={stats.buckets_solicitud}    compliance={stats.compliance_solicitud}    total={stats.totalEnRmaSolicitada} />
-        </DashCard>
-        <DashCard title="Antigüedad: RMA → OC"               subtitle={`${stats.totalEnRmaGenerada} esperando OC · días desde RMA generada`} accent="sky">
-          <StageAging buckets={stats.aging_rma}          buckCfg={stats.buckets_rma}          compliance={stats.compliance_rma}          total={stats.totalEnRmaGenerada} />
         </DashCard>
       </div>
 
@@ -714,7 +751,7 @@ export function Dashboard({
         {stats.actividadReciente.length === 0
           ? <EmptyChart label="Sin actividad reciente" />
           : <div className="space-y-2 max-h-80 overflow-y-auto">
-              {stats.actividadReciente.map((a, i) => <ActivityRow key={i} activity={a} onClick={() => onCardClick(a.task)} />)}
+              {stats.actividadReciente.map((a, i) => <ActivityRow key={i} activity={a} onClick={() => onCardClick(a.task)} resolveUserName={resolveUserName} />)}
             </div>
         }
       </DashCard>

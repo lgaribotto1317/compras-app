@@ -38,7 +38,9 @@ export function rowToTask(row, history = [], attachments = []) {
     area:                row.area,
     descripcionDetallada: row.descripcion_detallada || '',
     proveedor:           row.proveedor || '',
+    proveedorCodigo:     row.proveedor_codigo || null,
     proveedorAdjudicado: row.proveedor_adjudicado || '',
+    proveedorAdjudicadoCodigo: row.proveedor_adjudicado_codigo || null,
     prioridad:           row.prioridad,
     paradaDePlanta:      row.parada_de_planta,
     auditoriaInspeccion: row.auditoria_inspeccion,
@@ -46,6 +48,7 @@ export function rowToTask(row, history = [], attachments = []) {
     presupuestadaAt:     row.presupuestada_at,
     section:             row.section,
     rmaNumber:           row.rma_number,
+    cmaNumber:           row.cma_number,
     ocNumber:            row.oc_number,
     monto:               row.monto != null ? String(row.monto) : null,
     fechaCierre:         row.fecha_cierre,
@@ -74,7 +77,9 @@ export function taskToRow(data) {
   if (data.area                 !== undefined) row.area                  = data.area;
   if (data.descripcionDetallada !== undefined) row.descripcion_detallada = data.descripcionDetallada;
   if (data.proveedor            !== undefined) row.proveedor             = data.proveedor;
+  if (data.proveedorCodigo      !== undefined) row.proveedor_codigo      = data.proveedorCodigo || null;
   if (data.proveedorAdjudicado  !== undefined) row.proveedor_adjudicado  = data.proveedorAdjudicado || null;
+  if (data.proveedorAdjudicadoCodigo !== undefined) row.proveedor_adjudicado_codigo = data.proveedorAdjudicadoCodigo || null;
   if (data.prioridad            !== undefined) row.prioridad             = data.prioridad;
   if (data.paradaDePlanta       !== undefined) row.parada_de_planta      = data.paradaDePlanta;
   if (data.auditoriaInspeccion  !== undefined) row.auditoria_inspeccion  = data.auditoriaInspeccion;
@@ -82,6 +87,7 @@ export function taskToRow(data) {
   if (data.presupuestadaAt      !== undefined) row.presupuestada_at      = data.presupuestadaAt;
   if (data.section              !== undefined) row.section               = data.section;
   if (data.rmaNumber            !== undefined) row.rma_number            = data.rmaNumber;
+  if (data.cmaNumber            !== undefined) row.cma_number            = data.cmaNumber;
   if (data.ocNumber             !== undefined) row.oc_number             = data.ocNumber;
   if (data.monto                !== undefined) row.monto                 = data.monto ? Number(data.monto) : null;
   if (data.fechaCierre          !== undefined) row.fecha_cierre          = data.fechaCierre || null;
@@ -101,6 +107,7 @@ export function rowToHistoryEvent(row) {
     attachmentName: row.attachment_name || undefined,
     motivo:         row.motivo || undefined,
     values:         row.values || undefined,
+    userId:         row.user_id || undefined,
     userEmail:      row.user_email || undefined
   };
 }

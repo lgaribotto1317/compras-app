@@ -1,5 +1,5 @@
 import { AlertTriangle, ShieldCheck, Flame, Clock } from 'lucide-react';
-import { SECTIONS } from '../../lib/constants';
+import { SECTIONS, GROUP_KEY_BY_SECTION } from '../../lib/constants';
 
 // ─── CÁLCULO DE ESTADÍSTICAS ──────────────────────────────────────
 // Función pura: recibe el array de solicitudes, devuelve el objeto stats.
@@ -13,6 +13,23 @@ import { SECTIONS } from '../../lib/constants';
 //   <30 días   → > 80% (acumulado)
 
 export function calculateStats(tasks) {
+  // ─── DEDUPE POR GRUPO (CONSOLIDACIÓN) ─────────────────────────────
+  // Una fila por grupo según la group-key de su sección:
+  //   rma_generada → rmaNumber,  rma_valorizada/oc_generada/finalizadas → cma/ocNumber
+  // Las filas que comparten número avanzaron juntas (misma fecha de evento),
+  // así que el representante conserva las fechas del grupo. Sin número (o
+  // rma_solicitada, cuya group-key es null) cada fila cuenta como su propio grupo.
+  function dedupeByGroup(rows) {
+    const seen = new Map();
+    for (const t of rows) {
+      const gk  = GROUP_KEY_BY_SECTION[t.section];
+      const val = gk ? t[gk] : null;
+      const key = (val == null || val === '') ? `__id_${t.id}` : `${t.section}:${gk}:${val}`;
+      if (!seen.has(key)) seen.set(key, t);
+    }
+    return [...seen.values()];
+  }
+
   const totales        = tasks.length;
   const enCurso        = tasks.filter(t => t.section !== 'finalizadas').length;
   const finalizadas    = tasks.filter(t => t.section === 'finalizadas').length;
@@ -51,13 +68,17 @@ export function calculateStats(tasks) {
 
   // Top proveedores — cuenta proveedorAdjudicado (a quién se le emitió OC),
   // no el preferido. Solo solicitudes que pasaron por "Generar OC" lo tienen.
-  const provMap = {};
+  // DISTINCT por ocNumber: una OC consolidada (varias filas, mismo número) a
+  // un proveedor cuenta como 1 OC, no como N. Filas sin ocNumber (no debería
+  // pasar si hay proveedorAdjudicado) caen a su id para no perderlas.
+  const provSeen = {};
   tasks.forEach(t => {
     if (!t.proveedorAdjudicado) return;
-    provMap[t.proveedorAdjudicado] = (provMap[t.proveedorAdjudicado] || 0) + 1;
+    if (!provSeen[t.proveedorAdjudicado]) provSeen[t.proveedorAdjudicado] = new Set();
+    provSeen[t.proveedorAdjudicado].add(t.ocNumber || `__id_${t.id}`);
   });
-  const proveedores = Object.entries(provMap)
-    .map(([name, count]) => ({ name, count }))
+  const proveedores = Object.entries(provSeen)
+    .map(([name, set]) => ({ name, count: set.size }))
     .sort((a, b) => b.count - a.count);
 
   // Top solicitantes
@@ -172,20 +193,46 @@ export function calculateStats(tasks) {
   }
   const compliance_solicitud = buildComplianceS(aging_solicitud, enRmaSolicitada.length);
 
-  // ── Flujo 3: RMA generada → OC generada ───────────────────────────
-  // Buckets: 0-15, 16-30, 31-60, >60. Mide días desde el evento
-  // "Generar RMA". Si no hay evento (caso de seed antiguo), usa createdAt.
+  // ── Flujo 3: RMA esperando OC → OC generada ───────────────────────
+  // "Esperando OC" = solicitudes en rma_generada O rma_valorizada (ambas
+  // ya tienen RMA pero todavía no OC). Buckets: 0-15, 16-30, 31-60, >60.
+  // Mide días desde el evento "Generar RMA". Si no hay evento, usa createdAt.
   const buckets_rma = [
     { key: '0-15',  label: '0-15 días',  max: 15,   color: 'bg-emerald-500' },
     { key: '16-30', label: '16-30 días', max: 30,   color: 'bg-sky-500'     },
     { key: '31-60', label: '31-60 días', max: 60,   color: 'bg-orange-500'  },
     { key: '60+',   label: '> 60 días',  max: null, color: 'bg-red-600'     }
   ];
-  const enRmaGenerada = tasks.filter(t => t.section === 'rma_generada');
-  const aging_rma = aging(buckets_rma, enRmaGenerada, (t) => {
+  const enRmaGenerada = tasks.filter(t => t.section === 'rma_generada' || t.section === 'rma_valorizada');
+  // DISTINCT por grupo: "esperando OC" cuenta RMAs (en rma_generada) y CMAs
+  // (en rma_valorizada), no solicitudes. Una RMA/CMA consolidada = 1 cosa
+  // esperando OC. Las filas del grupo comparten el evento Generar RMA.
+  const enRmaGeneradaGroups = dedupeByGroup(enRmaGenerada);
+  const refDateRma = (t) => {
     const evRma = (t.history || []).find(h => h.to === 'rma_generada');
     return evRma ? new Date(evRma.at) : new Date(t.createdAt);
-  });
+  };
+  const aging_rma = aging(buckets_rma, enRmaGeneradaGroups, refDateRma);
+
+  // Resumen de días ESPERANDO OC (encabezado de la card, espejo abierto del
+  // lead-time cerrado que se eliminó). Días = hoy − evento Generar RMA, por
+  // grupo distinto. Sin grupos → todo null.
+  const diasEspera = enRmaGeneradaGroups
+    .map(t => Math.floor((ahora - refDateRma(t)) / 86400000))
+    .filter(d => d >= 0)
+    .sort((a, b) => a - b);
+  const nEspera = diasEspera.length;
+  const r1e = (x) => Math.round(x * 10) / 10;
+  const esperaRmaOc = nEspera === 0
+    ? { n: 0, promedio: null, mediana: null, min: null, max: null }
+    : {
+        n: nEspera,
+        promedio: r1e(diasEspera.reduce((a, b) => a + b, 0) / nEspera),
+        mediana:  r1e(nEspera % 2 ? diasEspera[(nEspera - 1) / 2]
+                                  : (diasEspera[nEspera / 2 - 1] + diasEspera[nEspera / 2]) / 2),
+        min: diasEspera[0],
+        max: diasEspera[nEspera - 1]
+      };
 
   function buildComplianceR(buckets, total) {
     const pct = (n) => total > 0 ? (n / total) * 100 : 0;
@@ -196,7 +243,7 @@ export function calculateStats(tasks) {
       { key: '60+',   label: '> 60 días',  target: '< 5%',  actual: pct(buckets['60+']),   threshold: 5,  op: 'lt' }
     ].map(c => ({ ...c, pass: c.op === 'gt' ? c.actual > c.threshold : c.actual < c.threshold }));
   }
-  const compliance_rma = buildComplianceR(aging_rma, enRmaGenerada.length);
+  const compliance_rma = buildComplianceR(aging_rma, enRmaGeneradaGroups.length);
 
   // Aging global (todas las activas) — usado en alertas y en el cálculo
   // de envejecimiento general. Mantiene los buckets viejos (0-15/16-30/
@@ -264,6 +311,70 @@ export function calculateStats(tasks) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
 
+  // ─── EVOLUCIÓN SEMANAL DEL BACKLOG (RMA SIN OC, POR ANTIGÜEDAD) ────
+  // Reconstrucción histórica: para cada sábado desde la RMA más antigua
+  // hasta hoy, cuántas solicitudes ya habían generado RMA pero todavía
+  // NO tenían OC en esa fecha, clasificadas por antigüedad (días desde
+  // "Generar RMA" hasta el corte). Es la evolución del backlog, NO el
+  // lead-time de cierre.
+  // Excluye canceladas/eliminadas (mira estado actual; las históricas
+  // importadas no tienen cancelaciones, así que no afecta el resultado).
+  function buildBacklogSemanal() {
+    const evDate = (t, toSection) => {
+      const ev = (t.history || []).find(h => h.to === toSection);
+      return ev ? new Date(ev.at) : null;
+    };
+    // DISTINCT por RMA: el backlog es "RMAs sin OC", no solicitudes. Las filas
+    // que comparten rmaNumber avanzaron juntas (mismas fechas tRMA/tOC), así
+    // que dedupear por número da el conteo de RMAs distintas. Las que no tienen
+    // rmaNumber (rma_solicitada) caen a su id y luego se filtran por tRMA null.
+    const dedup = new Map();
+    tasks.filter(t => !t.cancelledAt && !t.deletedAt).forEach(t => {
+      const key = t.rmaNumber ? `rma:${t.rmaNumber}` : `id:${t.id}`;
+      if (!dedup.has(key)) dedup.set(key, t);
+    });
+    const cand = [...dedup.values()]
+      .map(t => {
+        const tRMA = evDate(t, 'rma_generada')
+          || (t.section !== 'rma_solicitada' ? new Date(t.createdAt) : null);
+        const tOC = evDate(t, 'oc_generada');
+        return { tRMA, tOC };
+      })
+      .filter(x => x.tRMA);
+    if (cand.length === 0) return [];
+
+    const toSaturday = (d) => {
+      const x = new Date(d); x.setHours(0, 0, 0, 0);
+      const diff = (x.getDay() - 6 + 7) % 7; // días desde el último sábado
+      x.setDate(x.getDate() - diff);
+      return x;
+    };
+    const start  = toSaturday(new Date(Math.min(...cand.map(x => x.tRMA.getTime()))));
+    const endHoy = toSaturday(new Date());
+    const semanas = [];
+    for (let w = new Date(start); w <= endHoy; w.setDate(w.getDate() + 7)) {
+      const corte  = new Date(w);
+      const counts = { '0-15': 0, '16-30': 0, '31-60': 0, '60+': 0 };
+      cand.forEach(x => {
+        if (x.tRMA <= corte && (!x.tOC || x.tOC > corte)) {
+          const dias = Math.floor((corte - x.tRMA) / 86400000);
+          if      (dias <= 15) counts['0-15']++;
+          else if (dias <= 30) counts['16-30']++;
+          else if (dias <= 60) counts['31-60']++;
+          else                 counts['60+']++;
+        }
+      });
+      semanas.push({
+        semana: corte.toISOString().slice(0, 10),
+        label:  corte.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' }),
+        ...counts,
+        total: counts['0-15'] + counts['16-30'] + counts['31-60'] + counts['60+']
+      });
+    }
+    return semanas;
+  }
+  const backlogSemanal = buildBacklogSemanal();
+
   return {
     totales, enCurso, finalizadas, tasaFinalizacion,
     altaPrioridad, paradaPlanta, auditoria,
@@ -275,9 +386,13 @@ export function calculateStats(tasks) {
     aging: aging_global, totalActivas,
     // Buckets + compliance por flujo (Bloque 4 — umbrales SLA actualizados)
     aging_solicitud,    compliance_solicitud,    buckets_solicitud,    totalEnRmaSolicitada: enRmaSolicitada.length,
-    aging_rma,          compliance_rma,          buckets_rma,          totalEnRmaGenerada:   enRmaGenerada.length,
+    aging_rma,          compliance_rma,          buckets_rma,          totalEnRmaGenerada:   enRmaGeneradaGroups.length,
+    // Resumen de días esperando OC (encabezado de la card RMA→OC)
+    esperaRmaOc,
     aging_presupuesto,  compliance_presupuesto,  buckets_presupuesto,  totalSinPresupuesto:  sinPresupuesto.length,
     alertas, actividadReciente,
+    // Evolución semanal del backlog RMA sin OC (gráfico apilado)
+    backlogSemanal,
     // Cancelaciones
     canceladas, tasaCancelacion, motivosTop
   };

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   User, Building2, Truck, AlertTriangle, ShieldCheck, Clock, Receipt,
   ChevronRight, FileText, Eye, Download, Trash2, Edit2,
-  Plus, ShoppingCart, CheckCircle2, Paperclip, X, Loader2, XCircle
+  Plus, ShoppingCart, CheckCircle2, Paperclip, X, Loader2, XCircle, DollarSign, Layers
 } from 'lucide-react';
 import { SECTION_BY_ID, PRIORIDADES, FLOW_STEPS } from '../../lib/constants';
 import { fmtDate, fmtBytes, timeAgo } from '../../lib/helpers';
@@ -10,7 +10,7 @@ import { getSignedUrl, downloadAttachment } from '../../lib/supabase';
 import { ModalShell } from '../../components/ModalShell';
 
 // ─── HistoryEntry ─────────────────────────────────────────────────
-function HistoryEntry({ event }) {
+function HistoryEntry({ event, resolveUserName }) {
   const fromSec = event.from ? SECTION_BY_ID[event.from] : null;
   const toSec   = event.to   ? SECTION_BY_ID[event.to]   : null;
 
@@ -18,6 +18,7 @@ function HistoryEntry({ event }) {
     'creada':                  { icon: Plus,          color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     'creada con presupuesto':  { icon: Plus,          color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     'Generar RMA':             { icon: Receipt,       color: 'text-sky-600 bg-sky-50 border-sky-200' },
+    'Valorizar RMA':           { icon: DollarSign,    color: 'text-teal-600 bg-teal-50 border-teal-200' },
     'Generar OC':              { icon: ShoppingCart,  color: 'text-violet-600 bg-violet-50 border-violet-200' },
     'Finalizar compra':        { icon: CheckCircle2,  color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     'editada':                 { icon: Edit2,         color: 'text-slate-600 bg-slate-50 border-slate-200' },
@@ -40,15 +41,13 @@ function HistoryEntry({ event }) {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-semibold text-slate-800">{event.action}</span>
           {event.userEmail && (
-            // Username (parte antes del @). El email completo queda en el title
-            // por si alguien quiere verlo con hover.
-            // Backlog Bloque 4: cuando tengamos tabla profiles, mostrar nombre
-            // completo en vez de username.
+            // Nombre completo desde profiles (fallback: username antes del @).
+            // El email completo queda en el title por si se quiere ver con hover.
             <span
-              className="text-[10px] text-slate-500 font-medium tabular-nums"
+              className="text-[10px] text-slate-500 font-medium"
               title={event.userEmail}
             >
-              · {event.userEmail.split('@')[0]}
+              · {resolveUserName ? resolveUserName(event) : event.userEmail.split('@')[0]}
             </span>
           )}
           {fromSec && toSec && (
@@ -81,11 +80,30 @@ function HistoryEntry({ event }) {
         {event.motivo && (
           <p className="text-[11px] text-slate-600 mt-0.5 italic">Motivo: {event.motivo}</p>
         )}
-        {event.values && Object.keys(event.values).length > 0 && (
-          <p className="text-[11px] text-slate-500 mt-0.5 font-mono">
-            {Object.entries(event.values).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ')}
-          </p>
-        )}
+        {(() => {
+          const consol = event.values && event.values._consolidacion;
+          const genericValues = event.values
+            ? Object.entries(event.values).filter(([k, v]) => v && k !== '_consolidacion')
+            : [];
+          return (
+            <>
+              {consol && (
+                <p className="text-[11px] text-sky-700 mt-0.5 flex items-start gap-1">
+                  <Layers size={11} className="shrink-0 mt-0.5" />
+                  <span>
+                    Consolidó {consol.count} {consol.nivel === 'rma' ? 'RMA' : 'solicitudes'}:{' '}
+                    <span className="font-mono">{consol.numeros.join(', ')}</span>
+                  </span>
+                </p>
+              )}
+              {genericValues.length > 0 && (
+                <p className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                  {genericValues.map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                </p>
+              )}
+            </>
+          );
+        })()}
         <p className="font-mono text-[10px] text-slate-400 mt-0.5">{fmtDate(event.at)} · {timeAgo(event.at)}</p>
       </div>
     </div>
@@ -117,7 +135,9 @@ export function DetailModal({
   task, onClose, onEdit, onDelete, onAdvance, onCancel,
   onCargarPresupuesto, onQuitarPresupuesto,
   canCancel = false, canDelete = false, canEdit = false,
-  canAdvance = false, canBudget = false
+  canAdvance = false, canBudget = false,
+  resolveUserName,
+  groupRows = null, onSelectMember
 }) {
   const section     = SECTION_BY_ID[task.section];
   const isFinal     = task.section === 'finalizadas';
@@ -213,6 +233,41 @@ export function DetailModal({
 
         <h3 className="text-xl font-semibold text-slate-900 leading-tight mb-3">{task.name}</h3>
 
+        {/* Composición del grupo (consolidación N→1). Solo si el detalle se
+            abrió sobre un grupo de 2+ solicitudes que comparten número. Lista
+            navegable: clic en un miembro cambia la solicitud vista. Solo-lectura
+            (sacar miembros queda para una iteración posterior). */}
+        {groupRows && groupRows.length > 1 && (
+          <div className="bg-sky-50/60 border border-sky-200 rounded-md p-3 mb-4">
+            <p className="text-[10px] uppercase tracking-wider text-sky-800 font-semibold mb-2 flex items-center gap-1.5">
+              <Layers size={12} /> Composición del grupo · {groupRows.length} solicitudes
+            </p>
+            <div className="space-y-1">
+              {groupRows.map(m => {
+                const isCurrent = m.id === task.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => { if (!isCurrent) onSelectMember && onSelectMember(m); }}
+                    disabled={isCurrent}
+                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors ${
+                      isCurrent
+                        ? 'bg-white border border-sky-300 cursor-default'
+                        : 'bg-transparent hover:bg-white border border-transparent hover:border-sky-200'
+                    }`}
+                  >
+                    <span className="font-mono text-[10px] text-slate-500 font-semibold shrink-0 tabular-nums">{m.numero || '—'}</span>
+                    <span className="flex-1 min-w-0 truncate text-slate-800">{m.name}</span>
+                    {isCurrent
+                      ? <span className="text-[9px] uppercase tracking-wider text-sky-700 font-bold shrink-0">viendo</span>
+                      : <ChevronRight size={12} className="text-slate-400 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Badges destacados */}
         <div className="flex flex-wrap gap-1.5 mb-4">
           {enSolicitada && !task.tienePresupuesto && (
@@ -237,17 +292,22 @@ export function DetailModal({
           )}
         </div>
 
-        {/* Identificadores RMA / OC */}
-        {(task.rmaNumber || task.ocNumber) && (
+        {/* Identificadores RMA / CMA / OMA */}
+        {(task.rmaNumber || task.cmaNumber || task.ocNumber) && (
           <div className="flex flex-wrap gap-1.5 mb-4">
             {task.rmaNumber && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-sky-50 text-sky-800 border border-sky-200">
                 <Receipt size={11} /> RMA · {task.rmaNumber}
               </span>
             )}
+            {task.cmaNumber && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-teal-50 text-teal-800 border border-teal-200">
+                <DollarSign size={11} /> CMA · {task.cmaNumber}
+              </span>
+            )}
             {task.ocNumber && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-violet-50 text-violet-800 border border-violet-200">
-                <ShoppingCart size={11} /> OC · {task.ocNumber}
+                <ShoppingCart size={11} /> OMA · {task.ocNumber}
               </span>
             )}
           </div>
@@ -257,9 +317,31 @@ export function DetailModal({
         <div className="space-y-3 mb-5">
           <DetailRow icon={User}          label="Solicitante"       value={task.solicitante} />
           <DetailRow icon={Building2}     label="Área"              value={task.area} />
-          <DetailRow icon={Truck}         label="Proveedor preferido" value={task.proveedor} />
+          <DetailRow
+            icon={Truck}
+            label="Proveedor preferido"
+            value={task.proveedor ? (
+              <span>
+                {task.proveedor}
+                {task.proveedorCodigo && (
+                  <span className="ml-1.5 font-mono text-[10px] text-slate-400">· cód. {task.proveedorCodigo}</span>
+                )}
+              </span>
+            ) : null}
+          />
           {task.proveedorAdjudicado && (
-            <DetailRow icon={Truck} label="Proveedor adjudicado" value={<span className="font-medium text-violet-800">{task.proveedorAdjudicado}</span>} />
+            <DetailRow
+              icon={Truck}
+              label="Proveedor adjudicado"
+              value={
+                <span className="font-medium text-violet-800">
+                  {task.proveedorAdjudicado}
+                  {task.proveedorAdjudicadoCodigo && (
+                    <span className="ml-1.5 font-mono text-[10px] text-violet-400 font-normal">· cód. {task.proveedorAdjudicadoCodigo}</span>
+                  )}
+                </span>
+              }
+            />
           )}
           {prioCfg && (
             <DetailRow
@@ -430,7 +512,7 @@ export function DetailModal({
             </p>
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
               {task.history.slice().reverse().map((h, i) => (
-                <HistoryEntry key={i} event={h} />
+                <HistoryEntry key={i} event={h} resolveUserName={resolveUserName} />
               ))}
             </div>
           </div>

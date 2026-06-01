@@ -5,6 +5,9 @@ import {
 
 import { SECTIONS, SECTION_BY_ID, FLOW_STEPS } from './lib/constants';
 import { useSolicitudes } from './hooks/useSolicitudes';
+import { useProveedores } from './hooks/useProveedores';
+import { useProfiles } from './hooks/useProfiles';
+import { useRealtime } from './hooks/useRealtime';
 import { useToast } from './hooks/useToast';
 import { useAuth } from './hooks/useAuth';
 
@@ -64,7 +67,8 @@ export default function App() {
   const [showNewModal,          setShowNewModal]          = useState(false);
   const [editingTask,           setEditingTask]           = useState(null);
   const [detailTask,            setDetailTask]            = useState(null);
-  const [advancingTask,         setAdvancingTask]         = useState(null);
+  const [detailGroup,           setDetailGroup]           = useState(null);   // rows del grupo | null (detalle individual)
+  const [advancing,             setAdvancing]             = useState(null);   // { rows, fromSection } | null
   const [confirmDelete,         setConfirmDelete]         = useState(null);
   const [cancellingTask,        setCancellingTask]        = useState(null);   // Bloque 4
   const [cargandoPresupuesto,   setCargandoPresupuesto]   = useState(null);
@@ -85,10 +89,27 @@ export default function App() {
     filterParada,    setFilterParada,
     filterAuditoria, setFilterAuditoria,
     includeCancelled, setIncludeCancelled,
-    createTask, editTask, advanceTask, deleteTask, cancelTask,
+    createTask, editTask, advanceTasks, deleteTask, cancelTask,
     cargarPresupuesto, quitarPresupuesto,
-    tasksInSection
+    tasksInSection, reload
   } = useSolicitudes({
+    onError: msg => showToast(`⚠ ${msg}`, 'error')
+  });
+
+  // Realtime: ante cualquier cambio en solicitudes/history_events/attachments
+  // de otro usuario, refresca la vista (debounce dentro del hook). Así el
+  // tablero es compartido sin recargar la página a mano.
+  useRealtime({ onChange: reload });
+
+  // Lista de proveedores (730) cargada una vez al montar. Se pasa a los
+  // modales para el combobox (proveedor preferido y adjudicado).
+  const { proveedores, loadingProveedores } = useProveedores({
+    onError: msg => showToast(`⚠ ${msg}`, 'error')
+  });
+
+  // Perfiles (nombre completo) para mostrar en la trazabilidad en vez del
+  // username. Carga una vez al montar; resolveUserName(evento) → nombre.
+  const { resolveUserName } = useProfiles({
     onError: msg => showToast(`⚠ ${msg}`, 'error')
   });
 
@@ -112,15 +133,49 @@ export default function App() {
     if (!result.noop) showToast('✓ Solicitud actualizada');
   }
 
+  // beginAdvance: abre el modal de avance para una o varias filas. Filtra
+  // canceladas/eliminadas (no avanzan). `rows` puede ser 1 (avance simple o
+  // de grupo) o N (selección consolidada). fromSection es la sección de origen.
+  function beginAdvance(rows, fromSection) {
+    const activos = (rows || []).filter(t => !t.cancelledAt && !t.deletedAt);
+    if (activos.length === 0) return;
+    setAdvancing({ rows: activos, fromSection });
+  }
+
+  // ── Detalle: individual vs grupo (consolidación) ──
+  // openDetail: detalle de una solicitud suelta (Dashboard, alertas, cards
+  // individuales de rma_solicitada). Limpia el grupo.
+  function openDetail(task) {
+    setDetailTask(task);
+    setDetailGroup(null);
+  }
+  // openGroupDetail: clic en una card de grupo del Kanban. Muestra la
+  // composición navegable si el grupo tiene 2+ miembros; si es de 1, se
+  // comporta como detalle individual.
+  function openGroupDetail(group) {
+    setDetailTask(group.rep);
+    setDetailGroup(group.rows && group.rows.length > 1 ? group.rows : null);
+  }
+  // selectMember: navega a otro miembro del grupo sin cerrar el modal.
+  function selectMember(member) {
+    setDetailTask(member);
+  }
+  function closeDetail() {
+    setDetailTask(null);
+    setDetailGroup(null);
+  }
+
   async function handleAdvance(values) {
-    const step   = FLOW_STEPS[advancingTask.section];
-    const result = await advanceTask(advancingTask, values, step);
+    const step   = FLOW_STEPS[advancing.fromSection];
+    const ids    = advancing.rows.map(r => r.id);
+    const result = await advanceTasks(ids, values, step);
     if (!result.ok) {
       showToast(`⚠ ${result.error}`, 'error');
       return;
     }
-    setAdvancingTask(null);
-    showToast(`✓ ${step.label} · movida a ${SECTION_BY_ID[result.nextSection].name}`);
+    setAdvancing(null);
+    const n = result.count || ids.length;
+    showToast(`✓ ${step.label} · ${n > 1 ? `${n} solicitudes movidas` : 'movida'} a ${SECTION_BY_ID[result.nextSection].name}`);
     setActiveSection(result.nextSection);
   }
 
@@ -310,7 +365,8 @@ export default function App() {
             modalChips={modalChips}
             onClearModalFilters={clearModalFilters}
             onGoToKanban={handleGoToKanban}
-            onCardClick={setDetailTask}
+            onCardClick={openDetail}
+            resolveUserName={resolveUserName}
           />
         ) : mainView === 'exportar' ? (
           <ExportarView tasks={tasks} />
@@ -332,8 +388,9 @@ export default function App() {
               activeSection={activeSection}
               setActiveSection={setActiveSection}
               tasksInSection={tasksInSection}
-              onCardClick={setDetailTask}
-              onAdvance={setAdvancingTask}
+              onCardClick={openDetail}
+              onGroupClick={openGroupDetail}
+              onAdvance={beginAdvance}
               onCargarPresupuesto={setCargandoPresupuesto}
               user={user}
             />
@@ -347,6 +404,8 @@ export default function App() {
         <TaskFormModal
           mode="create"
           defaultSolicitante={userName}
+          proveedores={proveedores}
+          loadingProveedores={loadingProveedores}
           onClose={() => setShowNewModal(false)}
           onSubmit={handleCreate}
         />
@@ -356,19 +415,24 @@ export default function App() {
         <TaskFormModal
           mode="edit"
           task={editingTask}
+          proveedores={proveedores}
+          loadingProveedores={loadingProveedores}
           onClose={() => setEditingTask(null)}
           onSubmit={handleEdit}
         />
       )}
 
-      {advancingTask && (
+      {advancing && (
         <AdvanceModal
-          task={advancingTask}
-          step={FLOW_STEPS[advancingTask.section]}
-          fromSection={SECTION_BY_ID[advancingTask.section]}
-          toSection={SECTION_BY_ID[FLOW_STEPS[advancingTask.section].next]}
+          tasks={advancing.rows}
+          step={FLOW_STEPS[advancing.fromSection]}
+          fromSection={SECTION_BY_ID[advancing.fromSection]}
+          toSection={SECTION_BY_ID[FLOW_STEPS[advancing.fromSection].next]}
           allTasks={tasks}
-          onClose={() => setAdvancingTask(null)}
+          excludeIds={advancing.rows.map(r => r.id)}
+          proveedores={proveedores}
+          loadingProveedores={loadingProveedores}
+          onClose={() => setAdvancing(null)}
           onSubmit={handleAdvance}
         />
       )}
@@ -381,13 +445,16 @@ export default function App() {
           canEdit={canEdit(detailTask, user)}
           canAdvance={canAdvance(detailTask, user)}
           canBudget={canBudget(detailTask, user)}
-          onClose={() => setDetailTask(null)}
-          onEdit={() => { setEditingTask(detailTask); setDetailTask(null); }}
+          resolveUserName={resolveUserName}
+          groupRows={detailGroup}
+          onSelectMember={selectMember}
+          onClose={closeDetail}
+          onEdit={() => { setEditingTask(detailTask); closeDetail(); }}
           onDelete={() => setConfirmDelete(detailTask)}
-          onAdvance={() => { setAdvancingTask(detailTask); setDetailTask(null); }}
-          onCancel={() => { setCancellingTask(detailTask); setDetailTask(null); }}
-          onCargarPresupuesto={() => { setCargandoPresupuesto(detailTask); setDetailTask(null); }}
-          onQuitarPresupuesto={() => { setQuitandoPresupuesto(detailTask); setDetailTask(null); }}
+          onAdvance={() => { beginAdvance(detailGroup ?? [detailTask], detailTask.section); closeDetail(); }}
+          onCancel={() => { setCancellingTask(detailTask); closeDetail(); }}
+          onCargarPresupuesto={() => { setCargandoPresupuesto(detailTask); closeDetail(); }}
+          onQuitarPresupuesto={() => { setQuitandoPresupuesto(detailTask); closeDetail(); }}
         />
       )}
 

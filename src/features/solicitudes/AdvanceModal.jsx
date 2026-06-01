@@ -1,23 +1,36 @@
 import React, { useState } from 'react';
-import { ChevronRight, AlertTriangle } from 'lucide-react';
+import { ChevronRight, AlertTriangle, Layers } from 'lucide-react';
 import { CAMPOS_UNICOS } from '../../lib/constants';
 import { normalizarIdentificador } from '../../lib/helpers';
 import { ModalShell, Field, ModalActions } from '../../components/ModalShell';
+import { ProveedorCombobox } from '../../components/ProveedorCombobox';
 
-export function AdvanceModal({ task, step, fromSection, toSection, allTasks = [], onClose, onSubmit }) {
+// AdvanceModal: avanza UNA o VARIAS solicitudes (consolidación N→1) en una
+// sola operación. `tasks` es el array de filas a avanzar (1 o N). `excludeIds`
+// son los ids que NO cuentan como colisión de unicidad (= los que van a
+// compartir el número del grupo). El resto de la base sí cuenta: un número no
+// puede pertenecer a otro grupo.
+export function AdvanceModal({
+  tasks = [], step, fromSection, toSection,
+  allTasks = [], excludeIds = [],
+  proveedores = [], loadingProveedores = false,
+  onClose, onSubmit
+}) {
   const [values, setValues] = useState({});
 
-  // Busca si el valor de un campo único ya está en otra solicitud.
+  const excludeSet = new Set(excludeIds.length ? excludeIds : tasks.map(t => t.id));
+  const esConsolidado = tasks.length > 1;
+
+  // Busca si el valor de un campo único ya está en una fila FUERA de la selección.
   function findDuplicate(fieldKey, val) {
     const norm = normalizarIdentificador(val);
     if (!norm) return null;
     return allTasks.find(t => {
-      if (t.id === task.id) return false;
+      if (excludeSet.has(t.id)) return false;
       return normalizarIdentificador(t[fieldKey]) === norm;
     }) || null;
   }
 
-  // Mapa de duplicados detectados en los campos del step actual
   const duplicates = {};
   step.fields.forEach(f => {
     if (CAMPOS_UNICOS[f.key]) {
@@ -30,14 +43,16 @@ export function AdvanceModal({ task, step, fromSection, toSection, allTasks = []
     const v = (values[f.key] || '').trim();
     if (f.required && !v) return false;
     if (f.integer && v && !/^\d+$/.test(v)) return false;
+    if (f.digits && v && !new RegExp(`^\\d{${f.digits}}$`).test(v)) return false;
     if (CAMPOS_UNICOS[f.key] && duplicates[f.key]) return false;
     return true;
   });
 
-  function handleNumericInput(key, raw, integer) {
-    const cleaned = integer
+  function handleNumericInput(key, raw, f) {
+    let cleaned = (f.integer || f.digits)
       ? raw.replace(/[^\d]/g, '')
       : raw.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
+    if (f.digits) cleaned = cleaned.slice(0, f.digits);
     setValues({ ...values, [key]: cleaned });
   }
 
@@ -51,15 +66,39 @@ export function AdvanceModal({ task, step, fromSection, toSection, allTasks = []
           onClose={onClose}
           onSubmit={() => onSubmit(values)}
           disabled={!fieldsValid}
-          submitLabel={step.label}
+          submitLabel={esConsolidado ? `${step.label} · ${tasks.length}` : step.label}
         />
       }
     >
 
-      {/* Resumen de la solicitud + transición de sección */}
+      {/* Resumen de la(s) solicitud(es) + transición de sección */}
       <div className="bg-slate-50 rounded-md border border-slate-200 p-3 mb-4">
-        <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Solicitud</p>
-        <p className="text-sm font-semibold text-slate-900 mt-1">{task.name}</p>
+        {esConsolidado ? (
+          <>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold flex items-center gap-1.5">
+              <Layers size={12} strokeWidth={2.5} />
+              Consolidando {tasks.length} solicitudes
+            </p>
+            <div className="mt-1.5 max-h-28 overflow-y-auto space-y-1">
+              {tasks.map(t => (
+                <div key={t.id} className="flex items-center gap-2 text-[11px] text-slate-700">
+                  <span className="font-mono text-slate-500 shrink-0">{t.numero || '—'}</span>
+                  <span className="truncate">
+                    {t.rmaNumber ? `RMA ${t.rmaNumber}` : t.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500 mt-2">
+              Todas reciben el mismo número y avanzan juntas.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Solicitud</p>
+            <p className="text-sm font-semibold text-slate-900 mt-1">{tasks[0]?.name}</p>
+          </>
+        )}
         <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600 flex-wrap">
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium ${fromSection?.chip}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${fromSection?.dot}`}></span>
@@ -77,14 +116,27 @@ export function AdvanceModal({ task, step, fromSection, toSection, allTasks = []
         {step.fields.map(f => {
           const dup    = duplicates[f.key];
           const hasDup = !!dup;
+          const vCur   = (values[f.key] || '').trim();
+          const badDigits = f.digits && vCur && !new RegExp(`^\\d{${f.digits}}$`).test(vCur);
           const inputBase   = 'w-full px-3 py-2.5 border rounded-md text-sm focus:outline-none focus:ring-2';
-          const inputBorder = hasDup
+          const inputBorder = (hasDup || badDigits)
             ? 'border-red-400 focus:ring-red-500 focus:border-red-500'
             : 'border-slate-300 focus:ring-sky-600 focus:border-sky-600';
 
           return (
             <Field key={f.key} label={f.label} required={f.required}>
-              {f.multiline ? (
+              {f.widget === 'proveedor' ? (
+                <ProveedorCombobox
+                  value={values[f.key] || ''}
+                  codigo={values[f.codeKey] ?? null}
+                  proveedores={proveedores}
+                  loading={loadingProveedores}
+                  placeholder={f.placeholder}
+                  onChange={({ name, codigo }) =>
+                    setValues({ ...values, [f.key]: name, [f.codeKey]: codigo })
+                  }
+                />
+              ) : f.multiline ? (
                 <textarea
                   value={values[f.key] || ''}
                   onChange={e => setValues({ ...values, [f.key]: e.target.value })}
@@ -96,9 +148,9 @@ export function AdvanceModal({ task, step, fromSection, toSection, allTasks = []
                 <input
                   type="text"
                   inputMode="numeric"
-                  pattern={f.integer ? '[0-9]*' : '[0-9.]*'}
+                  pattern={(f.integer || f.digits) ? '[0-9]*' : '[0-9.]*'}
                   value={values[f.key] || ''}
-                  onChange={e => handleNumericInput(f.key, e.target.value, f.integer)}
+                  onChange={e => handleNumericInput(f.key, e.target.value, f)}
                   placeholder={f.placeholder}
                   className={`${inputBase} ${inputBorder} font-mono`}
                 />
@@ -112,11 +164,18 @@ export function AdvanceModal({ task, step, fromSection, toSection, allTasks = []
                 />
               )}
 
+              {badDigits && !hasDup && (
+                <p className="mt-1.5 text-[11px] text-red-600 flex items-start gap-1.5">
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                  <span>{f.label} debe tener exactamente {f.digits} dígitos numéricos</span>
+                </p>
+              )}
+
               {hasDup && (
                 <p className="mt-1.5 text-[11px] text-red-600 flex items-start gap-1.5">
                   <AlertTriangle size={12} className="shrink-0 mt-0.5" />
                   <span>
-                    Este {CAMPOS_UNICOS[f.key]} ya está usado en la solicitud{' '}
+                    Este {CAMPOS_UNICOS[f.key]} ya pertenece a otro grupo:{' '}
                     <span className="font-mono font-semibold">{dup.numero || `#${dup.id}`}</span>
                     {dup.name && <>: <span className="font-medium">{dup.name}</span></>}
                   </span>

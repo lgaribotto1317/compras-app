@@ -1,4 +1,4 @@
-import { MAX_IMG_DIM, IMG_QUALITY, MAX_FILE_SIZE } from './constants';
+import { MAX_IMG_DIM, IMG_QUALITY, MAX_FILE_SIZE, GROUP_KEY_BY_SECTION, PRIORIDAD_ORDER } from './constants';
 
 // ─── IDs Y TIMESTAMPS ─────────────────────────────────────────────
 export const uid    = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -57,16 +57,116 @@ export function normalizarIdentificador(v) {
   return (v ?? '').toString().trim().toLowerCase();
 }
 
-// Dado un campo único (rmaNumber / ocNumber), un valor y la lista completa
-// de solicitudes, devuelve true si el valor ya está en uso por otra solicitud.
-// excludeId evita que la solicitud que se está editando cuente como duplicado.
-export function existeIdentificadorDuplicado(allTasks, fieldKey, value, excludeId) {
+// Dado un campo único (rmaNumber / cmaNumber / ocNumber), un valor y la
+// lista completa de solicitudes, devuelve true si el valor ya está en uso
+// por una fila FUERA de la selección excluida.
+//
+// `exclude` puede ser: undefined (no excluye nada), un id (string), un
+// array de ids, o un Set de ids. Esto soporta la consolidación N→1: al
+// asignar un número a un grupo, se excluyen TODAS las filas del grupo
+// (las que van a compartir el número) y se chequea colisión contra el resto.
+// Con un solo id el comportamiento es el de antes (editar una solicitud).
+export function existeIdentificadorDuplicado(allTasks, fieldKey, value, exclude) {
   const norm = normalizarIdentificador(value);
   if (!norm) return false; // vacío nunca es duplicado
+  const excludeSet =
+    exclude == null            ? null :
+    exclude instanceof Set     ? exclude :
+    Array.isArray(exclude)     ? new Set(exclude) :
+                                 new Set([exclude]);
   return allTasks.some(t => {
-    if (excludeId && t.id === excludeId) return false;
+    if (excludeSet && excludeSet.has(t.id)) return false;
     return normalizarIdentificador(t[fieldKey]) === norm;
   });
+}
+
+// ─── AGRUPACIÓN (CONSOLIDACIÓN N→1) ───────────────────────────────
+// groupKeyForSection: campo identificador del grupo en esa sección
+// (rmaNumber / cmaNumber / ocNumber) o null si las filas son individuales.
+export function groupKeyForSection(section) {
+  return GROUP_KEY_BY_SECTION[section] || null;
+}
+
+// Prioridad "más alta" de un set de filas (Alta > Media > Baja).
+// Se usa para que la card de grupo muestre la prioridad dominante.
+function topPrioridadDe(rows) {
+  let best = null;
+  let bestOrder = Infinity;
+  for (const r of rows) {
+    const o = PRIORIDAD_ORDER[r.prioridad] ?? 3;
+    if (o < bestOrder) { bestOrder = o; best = r.prioridad; }
+  }
+  return best;
+}
+
+// groupItems: agrupa las filas de UNA sección por su número identificador.
+// Devuelve un array de grupos preservando el orden de aparición de `items`
+// (que ya viene ordenado por prioridad+fecha desde tasksInSection).
+//
+// Reglas:
+//  - En secciones sin keyField (rma_solicitada) cada fila es su propio grupo.
+//  - Las filas CANCELADAS nunca se pliegan en un grupo activo: van como
+//    grupo singleton (se renderizan como card individual cancelada).
+//  - Filas con número nulo/vacío también van como singleton.
+//
+// Cada grupo expone agregados para que la card de grupo (Tanda 1b) muestre
+// recuento, áreas, prioridad dominante, adjuntos totales y flags. `rep` es
+// la fila representativa (primera) — útil para permisos (canAdvance) y para
+// abrir el detalle en el interino. `monto` es el de la CMA (replicado en
+// todos los miembros → se toma 1× de rep).
+export function groupItems(items, section) {
+  const keyField = groupKeyForSection(section);
+  const buckets = new Map();   // mapKey -> rows[]
+  let singletonSeq = 0;
+
+  for (const t of items) {
+    const canceled = !!t.cancelledAt;
+    const keyVal = (!canceled && keyField) ? t[keyField] : null;
+    const mapKey = (keyVal == null || keyVal === '')
+      ? `__single_${singletonSeq++}`        // único → grupo propio
+      : `${keyField}:${String(keyVal)}`;
+    if (!buckets.has(mapKey)) buckets.set(mapKey, []);
+    buckets.get(mapKey).push(t);
+  }
+
+  const groups = [];
+  for (const rows of buckets.values()) {
+    const rep    = rows[0];
+    const keyVal = keyField ? (rep[keyField] ?? null) : null;
+    groups.push({
+      id:                  rep.id,                 // representativa (click → detalle, interino)
+      keyField,                                    // 'rmaNumber' | 'cmaNumber' | 'ocNumber' | null
+      key:                 keyVal,                 // valor del número del grupo
+      rows,
+      rep,
+      isGroup:             rows.length > 1,
+      count:               rows.length,
+      areas:               [...new Set(rows.map(r => r.area).filter(Boolean))],
+      prioridad:           topPrioridadDe(rows),
+      attachmentsCount:    rows.reduce((n, r) => n + ((r.attachments || []).length), 0),
+      paradaDePlanta:      rows.some(r => r.paradaDePlanta),
+      auditoriaInspeccion: rows.some(r => r.auditoriaInspeccion),
+      cancelled:           rows.length === 1 && !!rep.cancelledAt,
+      monto:               rep.monto ?? null,
+      // Identificadores de los hijos del grupo, para badge + lista de
+      // trazabilidad en la card (consolidación N→1):
+      //   - solicitudNumeros: el #00000N de cada solicitud miembro.
+      //   - rmaNumeros:       los RMA distintos que componen el grupo
+      //                       (una CMA fusiona varias RMA).
+      solicitudNumeros:    rows.map(r => r.numero).filter(Boolean),
+      rmaNumeros:          [...new Set(rows.map(r => r.rmaNumber).filter(Boolean))]
+    });
+  }
+  return groups;
+}
+
+// Ids de los miembros de un grupo que SÍ pueden avanzar (no cancelados ni
+// eliminados). advanceTasks vuelve a filtrar por las dudas, pero esto le
+// sirve a la UI para armar la selección y mostrar el recuento real.
+export function advanceableIds(group) {
+  return group.rows
+    .filter(r => !r.cancelledAt && !r.deletedAt)
+    .map(r => r.id);
 }
 
 // ─── PROCESAMIENTO DE ADJUNTOS ────────────────────────────────────
@@ -258,9 +358,10 @@ export function isUserAdmin(user) {
 // Si las reglas cambian, hay que tocar acá Y en el trigger.
 
 // ¿Puede el usuario AVANZAR la solicitud (cambiar a la próxima sección)?
-//   rma_solicitada → rma_generada : responsable_rma
-//   rma_generada   → oc_generada  : compras
-//   oc_generada    → finalizadas  : responsable_rma  (recepción de material)
+//   rma_solicitada → rma_generada  : responsable_rma
+//   rma_generada   → rma_valorizada: compras  (Valorizar RMA)
+//   rma_valorizada → oc_generada   : compras  (Generar OC)
+//   oc_generada    → finalizadas   : responsable_rma  (recepción de material)
 export function canAdvance(task, user) {
   if (!task || !user) return false;
   if (task.cancelledAt) return false;
@@ -273,6 +374,7 @@ export function canAdvance(task, user) {
 
   if (task.section === 'rma_solicitada') return funcion === 'responsable_rma';
   if (task.section === 'rma_generada')   return funcion === 'compras';
+  if (task.section === 'rma_valorizada') return funcion === 'compras';
   if (task.section === 'oc_generada')    return funcion === 'responsable_rma';
   // finalizadas: no se avanza más
   return false;
@@ -281,6 +383,7 @@ export function canAdvance(task, user) {
 // ¿Puede el usuario EDITAR campos de la solicitud (sin avanzar etapa)?
 //   rma_solicitada : creador
 //   rma_generada   : responsable_rma
+//   rma_valorizada : compras
 //   oc_generada    : compras
 //   finalizadas    : nadie (excepto admin)
 export function canEdit(task, user) {
@@ -296,6 +399,7 @@ export function canEdit(task, user) {
 
   if (task.section === 'rma_solicitada') return isOwner;
   if (task.section === 'rma_generada')   return funcion === 'responsable_rma';
+  if (task.section === 'rma_valorizada') return funcion === 'compras';
   if (task.section === 'oc_generada')    return funcion === 'compras';
   // finalizadas: nadie editable
   return false;
