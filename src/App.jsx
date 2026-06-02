@@ -88,6 +88,7 @@ export default function App() {
     filterArea,      setFilterArea,
     filterParada,    setFilterParada,
     filterAuditoria, setFilterAuditoria,
+    filterPresupuesto, setFilterPresupuesto,
     includeCancelled, setIncludeCancelled,
     createTask, editTask, advanceTasks, deleteTask, cancelTask,
     cargarPresupuesto, quitarPresupuesto,
@@ -238,11 +239,12 @@ export default function App() {
     setFilterArea('');
     setFilterParada(false);
     setFilterAuditoria(false);
+    setFilterPresupuesto('');
     setIncludeCancelled(false);
   }
 
   // Chips actuales para el banner. Si no hay filtros activos del modal, es array vacío.
-  const modalChips = buildModalFilterChips({ search, filterPrioridad, filterArea, filterParada, filterAuditoria, includeCancelled });
+  const modalChips = buildModalFilterChips({ search, filterPrioridad, filterArea, filterParada, filterAuditoria, filterPresupuesto, includeCancelled });
 
   // ── Render ───────────────────────────────────────────────────────
 
@@ -484,6 +486,7 @@ export default function App() {
           filterArea={filterArea}   setFilterArea={setFilterArea}
           filterParada={filterParada}       setFilterParada={setFilterParada}
           filterAuditoria={filterAuditoria} setFilterAuditoria={setFilterAuditoria}
+          filterPresupuesto={filterPresupuesto} setFilterPresupuesto={setFilterPresupuesto}
           includeCancelled={includeCancelled} setIncludeCancelled={setIncludeCancelled}
           onClose={() => setShowFilters(false)}
           onClear={clearModalFilters}

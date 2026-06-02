@@ -192,6 +192,7 @@ export function FiltersModal({
   filterArea, setFilterArea,
   filterParada, setFilterParada,
   filterAuditoria, setFilterAuditoria,
+  filterPresupuesto, setFilterPresupuesto,
   includeCancelled, setIncludeCancelled,
   onClose, onClear
 }) {
@@ -256,52 +257,65 @@ export function FiltersModal({
           </div>
         </Field>
 
-        {/* Toggles de flags — 2 estados (todas / solo con). Combinables entre sí y con los demás filtros. */}
-        <Field label="Flags">
-          <div className="space-y-2">
-            <label className={`flex items-center gap-2 p-2.5 rounded-md border cursor-pointer hover:bg-slate-50 transition-colors ${
-              filterParada ? 'border-red-300 bg-red-50/30' : 'border-slate-200'
-            }`}>
-              <input
-                type="checkbox"
-                checked={filterParada}
-                onChange={e => setFilterParada(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-600"
-              />
-              <AlertTriangle size={14} className="text-red-600 shrink-0" />
-              <span className="text-sm font-medium text-slate-900 leading-tight">Solo con parada de planta</span>
-            </label>
+        {/* Flags (texto compacto) + Presupuesto (tri-estado), lado a lado.
+            Apila en mobile. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <Field label="Flags">
+            <div className="space-y-1.5">
+              <label className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer hover:bg-slate-50 transition-colors ${
+                filterParada ? 'border-red-300 bg-red-50/30' : 'border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={filterParada}
+                  onChange={e => setFilterParada(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-600"
+                />
+                <AlertTriangle size={13} className="text-red-600 shrink-0" />
+                <span className="text-xs font-medium text-slate-900 leading-tight">Solo con parada de planta</span>
+              </label>
 
-            <label className={`flex items-center gap-2 p-2.5 rounded-md border cursor-pointer hover:bg-slate-50 transition-colors ${
-              filterAuditoria ? 'border-violet-300 bg-violet-50/30' : 'border-slate-200'
-            }`}>
-              <input
-                type="checkbox"
-                checked={filterAuditoria}
-                onChange={e => setFilterAuditoria(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-600"
-              />
-              <ShieldCheck size={14} className="text-violet-600 shrink-0" />
-              <span className="text-sm font-medium text-slate-900 leading-tight">Solo con auditoría/inspección</span>
-            </label>
+              <label className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer hover:bg-slate-50 transition-colors ${
+                filterAuditoria ? 'border-violet-300 bg-violet-50/30' : 'border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={filterAuditoria}
+                  onChange={e => setFilterAuditoria(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-600"
+                />
+                <ShieldCheck size={13} className="text-violet-600 shrink-0" />
+                <span className="text-xs font-medium text-slate-900 leading-tight">Solo con auditoría/inspección</span>
+              </label>
 
-            {/* Bloque 4: toggle de canceladas. Por default off → Kanban
-                no muestra canceladas. Activarlo las incluye en Kanban
-                y Dashboard. */}
-            <label className={`flex items-center gap-2 p-2.5 rounded-md border cursor-pointer hover:bg-slate-50 transition-colors ${
-              includeCancelled ? 'border-slate-400 bg-slate-100' : 'border-slate-200'
-            }`}>
-              <input
-                type="checkbox"
-                checked={!!includeCancelled}
-                onChange={e => setIncludeCancelled(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-slate-600 focus:ring-slate-600"
-              />
-              <XCircle size={14} className="text-slate-500 shrink-0" />
-              <span className="text-sm font-medium text-slate-900 leading-tight">Incluir solicitudes canceladas</span>
-            </label>
-          </div>
-        </Field>
+              {/* Bloque 4: toggle de canceladas. Por default off → Kanban
+                  no muestra canceladas. Activarlo las incluye en Kanban
+                  y Dashboard. */}
+              <label className={`flex items-center gap-2 p-2 rounded-md border cursor-pointer hover:bg-slate-50 transition-colors ${
+                includeCancelled ? 'border-slate-400 bg-slate-100' : 'border-slate-200'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={!!includeCancelled}
+                  onChange={e => setIncludeCancelled(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-600 focus:ring-slate-600"
+                />
+                <XCircle size={13} className="text-slate-500 shrink-0" />
+                <span className="text-xs font-medium text-slate-900 leading-tight">Incluir solicitudes canceladas</span>
+              </label>
+            </div>
+          </Field>
+
+          {/* Presupuesto — tri-estado (Todas / Con / Sin). Aplica en todas
+              las etapas: el flag tiene_presupuesto persiste al avanzar. */}
+          <Field label="Presupuesto">
+            <div className="flex flex-col gap-1.5 items-start">
+              <FilterChip active={!filterPresupuesto}          onClick={() => setFilterPresupuesto('')}    label="Todas" />
+              <FilterChip active={filterPresupuesto === 'con'} onClick={() => setFilterPresupuesto('con')} label="Solo con presupuesto" />
+              <FilterChip active={filterPresupuesto === 'sin'} onClick={() => setFilterPresupuesto('sin')} label="Solo sin presupuesto" />
+            </div>
+          </Field>
+        </div>
       </div>
     </ModalShell>
   );

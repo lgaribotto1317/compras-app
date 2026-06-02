@@ -287,13 +287,15 @@ export function revokePreviewUrls(attachments) {
 // Construye los chips del banner de filtros activos a partir del estado del modal.
 // Se usa en Kanban y Dashboard (donde además se agrega el chip del período).
 // Devuelve array de { label, tone }.
-export function buildModalFilterChips({ search, filterPrioridad, filterArea, filterParada, filterAuditoria, includeCancelled }) {
+export function buildModalFilterChips({ search, filterPrioridad, filterArea, filterParada, filterAuditoria, filterPresupuesto, includeCancelled }) {
   const chips = [];
   if (search)          chips.push({ label: `Búsqueda: "${search}"`, tone: 'slate' });
   if (filterPrioridad) chips.push({ label: `Prioridad: ${filterPrioridad}`, tone: 'slate' });
   if (filterArea)      chips.push({ label: `Área: ${filterArea}`, tone: 'slate' });
   if (filterParada)    chips.push({ label: 'Solo con parada de planta', tone: 'red' });
   if (filterAuditoria) chips.push({ label: 'Solo con auditoría/inspección', tone: 'violet' });
+  if (filterPresupuesto === 'con') chips.push({ label: 'Con presupuesto', tone: 'emerald' });
+  if (filterPresupuesto === 'sin') chips.push({ label: 'Sin presupuesto', tone: 'orange' });
   if (includeCancelled) chips.push({ label: 'Incluye canceladas', tone: 'slate' });
   return chips;
 }

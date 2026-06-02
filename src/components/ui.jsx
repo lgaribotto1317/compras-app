@@ -91,10 +91,12 @@ export function FilterChip({ active, onClick, label, dot }) {
 // Si no hay chips, no renderiza nada.
 
 const BANNER_TONES = {
-  slate:  'bg-slate-100  text-slate-700  border-slate-200',
-  red:    'bg-red-50     text-red-700    border-red-200',
-  violet: 'bg-violet-50  text-violet-700 border-violet-200',
-  sky:    'bg-sky-50     text-sky-700    border-sky-200'
+  slate:   'bg-slate-100   text-slate-700   border-slate-200',
+  red:     'bg-red-50      text-red-700     border-red-200',
+  violet:  'bg-violet-50   text-violet-700  border-violet-200',
+  sky:     'bg-sky-50      text-sky-700     border-sky-200',
+  emerald: 'bg-emerald-50  text-emerald-700 border-emerald-200',
+  orange:  'bg-orange-50   text-orange-700  border-orange-200'
 };
 
 export function FiltersBanner({ chips, filteredCount, totalCount, onClear }) {

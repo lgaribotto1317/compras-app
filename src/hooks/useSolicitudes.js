@@ -32,6 +32,10 @@ export function useSolicitudes({ onError } = {}) {
   const [filterArea,      setFilterArea]      = useState('');
   const [filterParada,    setFilterParada]    = useState(false);
   const [filterAuditoria, setFilterAuditoria] = useState(false);
+  // Filtro tri-estado de presupuesto: '' = todas, 'con' = solo con presupuesto,
+  // 'sin' = solo sin presupuesto. Aplica en todas las etapas (el flag
+  // tiene_presupuesto persiste al avanzar).
+  const [filterPresupuesto, setFilterPresupuesto] = useState('');
   // Bloque 4: por default OCULTAMOS canceladas en el Kanban (decisión A1).
   // El toggle del FiltersModal las trae cuando hace falta. El filtro de
   // soft-deleted lo aplica la RLS de Supabase (no hace falta tocarlo acá).
@@ -676,9 +680,11 @@ export function useSolicitudes({ onError } = {}) {
       if (filterArea      && t.area      !== filterArea)      return false;
       if (filterParada    && !t.paradaDePlanta)               return false;
       if (filterAuditoria && !t.auditoriaInspeccion)          return false;
+      if (filterPresupuesto === 'con' && !t.tienePresupuesto) return false;
+      if (filterPresupuesto === 'sin' &&  t.tienePresupuesto) return false;
       return true;
     });
-  }, [tasks, search, filterPrioridad, filterArea, filterParada, filterAuditoria, includeCancelled]);
+  }, [tasks, search, filterPrioridad, filterArea, filterParada, filterAuditoria, filterPresupuesto, includeCancelled]);
 
   const counts = useMemo(() => {
     const c = {};
@@ -698,7 +704,7 @@ export function useSolicitudes({ onError } = {}) {
       });
   }
 
-  const hasActiveFilters = !!(search || filterPrioridad || filterArea || filterParada || filterAuditoria || includeCancelled);
+  const hasActiveFilters = !!(search || filterPrioridad || filterArea || filterParada || filterAuditoria || filterPresupuesto || includeCancelled);
 
   return {
     // Estado
@@ -714,6 +720,7 @@ export function useSolicitudes({ onError } = {}) {
     filterArea,      setFilterArea,
     filterParada,    setFilterParada,
     filterAuditoria, setFilterAuditoria,
+    filterPresupuesto, setFilterPresupuesto,
     includeCancelled, setIncludeCancelled,
 
     // CRUD
