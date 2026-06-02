@@ -400,7 +400,19 @@ function TablaMeses({ estadoMeses }) {
   );
 }
 
-function CostoPanel({ cEstado, estadoMeses }) {
+function CostoPanel({ cEstado, estadoMeses, soloC }) {
+  // soloC = período "esta semana": se oculta la tabla mensual (que es anual y
+  // no aplica a una semana) y la C ocupa todo el panel. El color sale de
+  // cEstado, que ya se calcula sobre las tasks de la semana filtrada.
+  if (soloC) {
+    return (
+      <DashCard title="Costo" subtitle="Cumplimiento de la semana" accent="slate">
+        <div className="flex items-center justify-center py-4 min-h-[280px]">
+          <div className="w-full max-w-[280px]"><LetraC estado={cEstado} /></div>
+        </div>
+      </DashCard>
+    );
+  }
   return (
     <DashCard title="Costo" subtitle="Cumplimiento mensual de lead time" accent="slate">
       <div className="flex items-center gap-4 sm:gap-5">
@@ -723,7 +735,7 @@ export function Dashboard({
           </DashCard>
         </div>
         <div className="lg:col-span-2">
-          <CostoPanel cEstado={stats.cEstado} estadoMeses={stats.estadoMeses} />
+          <CostoPanel cEstado={stats.cEstado} estadoMeses={stats.estadoMeses} soloC={period.kind === 'week'} />
         </div>
       </div>
 
