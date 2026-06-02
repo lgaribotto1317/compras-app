@@ -240,3 +240,24 @@ export const CANCEL_RULES = {
 // propia solicitud. Las demás no se autocancelan: tienen que pedirlo
 // a la función correspondiente.
 export const SOLICITANTE_PUEDE_CANCELAR_EN = ['rma_solicitada'];
+
+// ─── ESTADO MENSUAL MANUAL (panel "Costo" del Dashboard) ──────────
+// Override hardcodeado del color de cada mes en el panel "Costo".
+// PISA el cálculo automático (cohorte de OCs emitidas en el mes vs SLA).
+// Keys 'YYYY-MM'. Valores válidos: 'verde' | 'rojo'.
+//
+// Ene–Abr 2026: NO se importan al sistema, pero se sabe cómo cerraron → rojo.
+// Mayo 2026: fijo en verde por decisión del usuario.
+// Meses SIN override:
+//   - ya cerrados con datos → se calculan (cohorte de OCs del mes contra SLA).
+//   - en curso o futuros → gris (no se pintan hasta cerrar).
+//   - cerrados sin OCs ese mes → gris (sin datos).
+//
+// Para cambiar el color de un mes a mano, editá/borrá su entrada acá.
+export const ESTADO_MES_MANUAL = {
+  '2026-01': 'rojo',
+  '2026-02': 'rojo',
+  '2026-03': 'rojo',
+  '2026-04': 'rojo',
+  '2026-05': 'verde'
+};

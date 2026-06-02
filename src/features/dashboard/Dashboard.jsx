@@ -354,6 +354,65 @@ export function StageAging({ buckets, buckCfg, compliance, total }) {
   );
 }
 
+// ─── Panel "Costo" (letra C + tabla mensual) ──────────────────────
+// La C refleja el estado actual del cumplimiento RMA→OC (stats.cEstado,
+// espejo del bloque CUMPLIMIENTO de la card de al lado): verde = las 4
+// bandas cumplen, rojo = alguna falla, gris = nada esperando OC.
+// La tabla pinta cada mes del año en curso según stats.estadoMeses.
+const SEMAFORO_HEX = { verde: '#10b981', rojo: '#ef4444', gris: '#cbd5e1' };
+const SEMAFORO_BG  = { verde: 'bg-emerald-500', rojo: 'bg-red-500', gris: 'bg-slate-200' };
+
+function LetraC({ estado }) {
+  const fill = SEMAFORO_HEX[estado] || SEMAFORO_HEX.gris;
+  return (
+    <svg viewBox="0 0 130 150" className="w-full h-auto" role="img" aria-label={`Cumplimiento RMA→OC: ${estado}`}>
+      <text
+        x="65" y="80" textAnchor="middle" dominantBaseline="central"
+        fontSize="150" fontWeight="800" fontFamily="Arial, Helvetica, sans-serif"
+        fill={fill} stroke="#0f172a" strokeWidth="2.5"
+      >C</text>
+    </svg>
+  );
+}
+
+function TablaMeses({ estadoMeses }) {
+  return (
+    <table className="w-full border-collapse">
+      <thead>
+        <tr>
+          <th className="text-left text-[10px] uppercase tracking-wider text-slate-500 font-semibold pb-1.5 px-1">Mes</th>
+          <th className="pb-1.5 px-1 text-center">
+            <span className="inline-block px-3 py-0.5 rounded bg-slate-400 text-white text-[11px] font-semibold">Costo</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {estadoMeses.map(m => (
+          <tr key={m.mes} className="border-t border-slate-100">
+            <td className="py-[3px] px-1 text-xs text-slate-700">{m.nombre}</td>
+            <td className="py-[3px] px-1">
+              <div className={`h-4 w-full rounded-sm ${SEMAFORO_BG[m.estado] || SEMAFORO_BG.gris}`} title={m.fuente}></div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function CostoPanel({ cEstado, estadoMeses }) {
+  return (
+    <DashCard title="Costo" subtitle="Cumplimiento mensual de lead time" accent="slate">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <div className="w-2/5 shrink-0 flex items-center justify-center">
+          <div className="w-full max-w-[150px]"><LetraC estado={cEstado} /></div>
+        </div>
+        <div className="flex-1 min-w-0"><TablaMeses estadoMeses={estadoMeses} /></div>
+      </div>
+    </DashCard>
+  );
+}
+
 function PendientesUnificado({ stats, onGoToKanban }) {
   const sinPresu         = stats.totalSinPresupuesto;
   const conPresu         = Math.max(0, stats.totalEnRmaSolicitada - stats.totalSinPresupuesto);
@@ -646,19 +705,27 @@ export function Dashboard({
         </div>
       </div>
 
-      {/* Lead time: RMA → OC — primer gráfico, ancho completo. Snapshot de lo
-          que está esperando OC ahora (RMAs/CMAs distintas, no solicitudes). */}
-      <DashCard title="Lead time: RMA → OC" subtitle={`${stats.totalEnRmaGenerada} esperando OC · días desde RMA generada`} accent="sky">
-        {stats.totalEnRmaGenerada > 0 && (
-          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-4 pb-3 border-b border-slate-100">
-            <HeroStat label="Promedio"     value={`${stats.esperaRmaOc.promedio} d`} accent="sky" />
-            <HeroStat label="Mediana"      value={`${stats.esperaRmaOc.mediana} d`} />
-            <HeroStat label="Mín – Máx"    value={`${stats.esperaRmaOc.min} – ${stats.esperaRmaOc.max} d`} />
-            <HeroStat label="Esperando OC" value={stats.esperaRmaOc.n} />
-          </div>
-        )}
-        <StageAging buckets={stats.aging_rma} buckCfg={stats.buckets_rma} compliance={stats.compliance_rma} total={stats.totalEnRmaGenerada} />
-      </DashCard>
+      {/* Lead time: RMA → OC (≈60%) + panel "Costo" (≈40%), lado a lado.
+          El gráfico es el snapshot de lo que está esperando OC ahora
+          (RMAs/CMAs distintas, no solicitudes). Apila en mobile. */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3">
+          <DashCard title="Lead time: RMA → OC" subtitle={`${stats.totalEnRmaGenerada} esperando OC · días desde RMA generada`} accent="sky">
+            {stats.totalEnRmaGenerada > 0 && (
+              <div className="flex flex-wrap gap-x-8 gap-y-2 mb-4 pb-3 border-b border-slate-100">
+                <HeroStat label="Promedio"     value={`${stats.esperaRmaOc.promedio} d`} accent="sky" />
+                <HeroStat label="Mediana"      value={`${stats.esperaRmaOc.mediana} d`} />
+                <HeroStat label="Mín – Máx"    value={`${stats.esperaRmaOc.min} – ${stats.esperaRmaOc.max} d`} />
+                <HeroStat label="Esperando OC" value={stats.esperaRmaOc.n} />
+              </div>
+            )}
+            <StageAging buckets={stats.aging_rma} buckCfg={stats.buckets_rma} compliance={stats.compliance_rma} total={stats.totalEnRmaGenerada} />
+          </DashCard>
+        </div>
+        <div className="lg:col-span-2">
+          <CostoPanel cEstado={stats.cEstado} estadoMeses={stats.estadoMeses} />
+        </div>
+      </div>
 
       <DashCard title="Backlog RMA sin OC (evolución)" subtitle="Por semana, según antigüedad desde Generar RMA" accent="orange">
         <BacklogTrend data={stats.backlogSemanal} />

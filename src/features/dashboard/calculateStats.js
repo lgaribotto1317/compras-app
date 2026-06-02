@@ -1,5 +1,5 @@
 import { AlertTriangle, ShieldCheck, Flame, Clock } from 'lucide-react';
-import { SECTIONS, GROUP_KEY_BY_SECTION } from '../../lib/constants';
+import { SECTIONS, GROUP_KEY_BY_SECTION, ESTADO_MES_MANUAL } from '../../lib/constants';
 
 // ─── CÁLCULO DE ESTADÍSTICAS ──────────────────────────────────────
 // Función pura: recibe el array de solicitudes, devuelve el objeto stats.
@@ -375,6 +375,79 @@ export function calculateStats(tasks) {
   }
   const backlogSemanal = buildBacklogSemanal();
 
+  // ─── PANEL "COSTO": ESTADO DE LA C + TABLA MENSUAL ────────────────
+  // (1) Estado de la letra C = espejo del bloque CUMPLIMIENTO de la card
+  //     "Lead time: RMA → OC" (compliance_rma). Verde si las 4 bandas
+  //     cumplen; rojo si alguna falla; gris si no hay nada esperando OC
+  //     (con 0 ítems el % de la banda 0-15 es 0 y daría "falla" engañosa).
+  const cEstado = enRmaGeneradaGroups.length === 0
+    ? 'gris'
+    : (compliance_rma.every(c => c.pass) ? 'verde' : 'rojo');
+
+  // (2) Tabla mensual del año en curso. Por mes:
+  //     - override manual (ESTADO_MES_MANUAL) PISA todo.
+  //     - mes en curso / futuro → gris (no cerrado).
+  //     - mes cerrado sin override → cohorte de OCs EMITIDAS en el mes
+  //       (distinct ocNumber). Lead de cada OC = fecha_OC − fecha_RMA_generada
+  //       (puede ser > 30 d porque la RMA subyacente es anterior). Se reparte
+  //       en las 4 bandas y se evalúa con los MISMOS objetivos que la card
+  //       RMA→OC (buildComplianceR). "Mes OK" = las 4 bandas cumplen → verde;
+  //       alguna falla → rojo. Cohorte vacía → gris (sin datos).
+  //
+  //     OJO: corre sobre `tasks` ya filtradas por el período del Dashboard.
+  //     Los meses calculados dependen de ese filtro; los override no.
+  function buildEstadoMeses() {
+    const NOMBRES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const hoyD      = new Date();
+    const year      = hoyD.getFullYear();
+    const mesActual = hoyD.getMonth() + 1; // 1..12
+
+    const evDate = (t, to) => {
+      const ev = (t.history || []).find(h => h.to === to);
+      return ev ? new Date(ev.at) : null;
+    };
+    // Distinct por ocNumber: una OC consolidada (N filas, mismo número) = 1.
+    // Las filas del grupo comparten fechas, así que tomar la primera alcanza.
+    const ocSeen = new Map();
+    tasks.forEach(t => {
+      const tOC = evDate(t, 'oc_generada');
+      if (!tOC) return;
+      const key = t.ocNumber ? `oc:${t.ocNumber}` : `id:${t.id}`;
+      if (!ocSeen.has(key)) {
+        ocSeen.set(key, { tOC, tRMA: evDate(t, 'rma_generada') || new Date(t.createdAt) });
+      }
+    });
+    const ocs = [...ocSeen.values()];
+
+    return NOMBRES.map((nombre, i) => {
+      const m   = i + 1;
+      const key = `${year}-${String(m).padStart(2, '0')}`;
+
+      if (ESTADO_MES_MANUAL[key]) {
+        return { mes: m, nombre, key, estado: ESTADO_MES_MANUAL[key], fuente: 'manual' };
+      }
+      if (m >= mesActual) {
+        return { mes: m, nombre, key, estado: 'gris', fuente: m === mesActual ? 'en_curso' : 'futuro' };
+      }
+      const cohorte = ocs.filter(o => o.tOC.getFullYear() === year && o.tOC.getMonth() + 1 === m);
+      if (cohorte.length === 0) {
+        return { mes: m, nombre, key, estado: 'gris', fuente: 'sin_datos' };
+      }
+      const counts = { '0-15': 0, '16-30': 0, '31-60': 0, '60+': 0 };
+      cohorte.forEach(o => {
+        const dias = Math.floor((o.tOC - o.tRMA) / 86400000);
+        if      (dias <= 15) counts['0-15']++;
+        else if (dias <= 30) counts['16-30']++;
+        else if (dias <= 60) counts['31-60']++;
+        else                 counts['60+']++;
+      });
+      const estado = buildComplianceR(counts, cohorte.length).every(c => c.pass) ? 'verde' : 'rojo';
+      return { mes: m, nombre, key, estado, fuente: 'calculado', n: cohorte.length };
+    });
+  }
+  const estadoMeses = buildEstadoMeses();
+
   return {
     totales, enCurso, finalizadas, tasaFinalizacion,
     altaPrioridad, paradaPlanta, auditoria,
@@ -393,6 +466,8 @@ export function calculateStats(tasks) {
     alertas, actividadReciente,
     // Evolución semanal del backlog RMA sin OC (gráfico apilado)
     backlogSemanal,
+    // Panel "Costo": estado de la C (espejo de compliance_rma) + tabla mensual
+    cEstado, estadoMeses,
     // Cancelaciones
     canceladas, tasaCancelacion, motivosTop
   };
