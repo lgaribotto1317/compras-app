@@ -237,7 +237,7 @@ export function calculateStats(tasks) {
   function buildComplianceR(buckets, total) {
     const pct = (n) => total > 0 ? (n / total) * 100 : 0;
     return [
-      { key: '0-15',  label: '0-15 días',  target: '> 75%', actual: pct(buckets['0-15']),  threshold: 75, op: 'gt' },
+      { key: '0-15',  label: '0-15 días',  target: '> 50%', actual: pct(buckets['0-15']),  threshold: 50, op: 'gt' },
       { key: '16-30', label: '16-30 días', target: '< 30%', actual: pct(buckets['16-30']), threshold: 30, op: 'lt' },
       { key: '31-60', label: '31-60 días', target: '< 15%', actual: pct(buckets['31-60']), threshold: 15, op: 'lt' },
       { key: '60+',   label: '> 60 días',  target: '< 5%',  actual: pct(buckets['60+']),   threshold: 5,  op: 'lt' }

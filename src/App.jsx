@@ -528,8 +528,8 @@ export default function App() {
 function Logo() {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center shadow-sm border border-slate-600">
-        <Package size={18} className="text-sky-300" strokeWidth={2.2} />
+      <div className="bg-white rounded-md w-10 h-10 p-0.5 flex items-center justify-center shadow-sm shrink-0">
+        <img src="/logobiomas.jpg" alt="Biomás" className="w-full h-full object-contain" />
       </div>
       <div>
         <h1 className="font-semibold text-[15px] text-slate-50 leading-tight">Gestión de Compras</h1>

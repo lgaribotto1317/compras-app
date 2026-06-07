@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Loader2, AlertCircle, LogIn } from 'lucide-react';
+import { Loader2, AlertCircle, LogIn } from 'lucide-react';
 
 // Clave de localStorage para recordar el último email usado.
 // No se guarda la password — solo el email para evitar reescribirlo cada vez.
@@ -50,8 +50,8 @@ export function LoginScreen({ onSignIn }) {
       <div className="w-full max-w-sm">
         {/* Logo / título */}
         <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-xl bg-slate-900 flex items-center justify-center shadow-sm mb-3">
-            <Package size={24} className="text-sky-300" strokeWidth={2.2} />
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm w-20 h-20 p-1 mb-3 flex items-center justify-center">
+            <img src="/logobiomas.jpg" alt="Biomás" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-lg font-semibold text-slate-900">Gestión de Compras</h1>
           <p className="text-xs text-slate-500 mt-1">Iniciá sesión para continuar</p>
