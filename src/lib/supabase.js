@@ -53,6 +53,9 @@ export function rowToTask(row, history = [], attachments = []) {
     monto:               row.monto != null ? String(row.monto) : null,
     fechaCierre:         row.fecha_cierre,
     observaciones:       row.observaciones,
+    comentariosRma:      row.comentarios_rma || '',
+    numeroFactura:       row.numero_factura || '',
+    comentariosOc:       row.comentarios_oc || '',
     completed:           row.section === 'finalizadas',
     // Bloque 4: cancelación + soft delete
     cancelledAt:         row.cancelled_at || null,
@@ -92,6 +95,9 @@ export function taskToRow(data) {
   if (data.monto                !== undefined) row.monto                 = data.monto ? Number(data.monto) : null;
   if (data.fechaCierre          !== undefined) row.fecha_cierre          = data.fechaCierre || null;
   if (data.observaciones        !== undefined) row.observaciones         = data.observaciones;
+  if (data.comentariosRma       !== undefined) row.comentarios_rma       = data.comentariosRma || null;
+  if (data.numeroFactura        !== undefined) row.numero_factura        = data.numeroFactura || null;
+  if (data.comentariosOc        !== undefined) row.comentarios_oc        = data.comentariosOc || null;
   return row;
 }
 

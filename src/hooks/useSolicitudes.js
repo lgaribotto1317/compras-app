@@ -24,7 +24,7 @@ import {
 // - Cualquier fallo de red/RLS dispara `onError(msg)` (callback opcional)
 //   para que App muestre un toast. La operación devuelve `{ ok, error }`.
 
-export function useSolicitudes({ onError } = {}) {
+export function useSolicitudes({ onError, enabled = true } = {}) {
   const [tasks,           setTasks]           = useState([]);
   const [loading,         setLoading]         = useState(true);
   const [search,          setSearch]          = useState('');
@@ -86,8 +86,17 @@ export function useSolicitudes({ onError } = {}) {
   }, [reportError]);
 
   useEffect(() => {
+    // No cargar hasta que haya sesión confirmada. Sin esto, la query
+    // inicial puede salir antes de que useAuth resuelva getSession() →
+    // sale sin JWT y RLS devuelve 0 filas (pantalla vacía al entrar,
+    // que se "arreglaba" recargando). Al pasar enabled=true cuando el
+    // user está listo, recargamos con el token correcto.
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     loadAll();
-  }, [loadAll]);
+  }, [loadAll, enabled]);
 
   // ── Helper: insertar un evento en history_events ───────────────────
   // Devuelve { ok, error }. No actualiza estado local — el caller
@@ -210,6 +219,7 @@ export function useSolicitudes({ onError } = {}) {
       prioridad:          'Prioridad',
       paradaDePlanta:     'Parada de planta',
       auditoriaInspeccion: 'Auditoría/Inspección',
+      tienePresupuesto:   'Tiene presupuesto',
       proveedorAdjudicado: 'Proveedor adjudicado',
       monto:              'Monto',
       rmaNumber:          'Número de RMA',
@@ -273,6 +283,13 @@ export function useSolicitudes({ onError } = {}) {
     // Update en solicitudes (si cambiaron campos trackeados o el código)
     if (runUpdate) {
       const updateRow = taskToRow(newData);
+      // Si cambió el flag de presupuesto, sincronizar el timestamp derivado:
+      // al activar se sella presupuestada_at; al desactivar se limpia.
+      // El form no envía este campo, así que lo derivamos acá.
+      if ('tienePresupuesto' in newData &&
+          prevTask.tienePresupuesto !== newData.tienePresupuesto) {
+        updateRow.presupuestada_at = newData.tienePresupuesto ? nowISO() : null;
+      }
       const { error: updErr } = await supabase
         .from('solicitudes')
         .update(updateRow)
@@ -655,6 +672,60 @@ export function useSolicitudes({ onError } = {}) {
     return { ok: true };
   }
 
+  // ── FACTURA / COMENTARIOS OC ──────────────────────────────────────
+  // guardarFacturaOc: carga/edita numero_factura y comentarios_oc en una
+  // solicitud que ya está en oc_generada o finalizadas. Ruta separada de
+  // editTask: el trigger valida con la regla v_editing_factura (creador,
+  // responsable_rma, compras o admin) en lugar de la regla de edición
+  // genérica de la etapa (que solo deja a compras en oc_generada).
+  //
+  // Solo manda los campos de factura/comentario → no dispara el bloque
+  // v_editing del trigger. Registra un evento de trazabilidad.
+  async function guardarFacturaOc(taskId, { numeroFactura, comentariosOc }) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return { ok: false, error: 'Solicitud no encontrada.' };
+    if (task.cancelledAt) {
+      return { ok: false, error: 'La solicitud está cancelada. No se puede modificar.' };
+    }
+
+    // Diff: solo persistimos lo que efectivamente cambió.
+    const updateRow = {};
+    const changes = [];
+    if (numeroFactura !== undefined && (task.numeroFactura || '') !== (numeroFactura || '')) {
+      updateRow.numero_factura = numeroFactura || null;
+      changes.push({ field: 'numeroFactura', label: 'Número de factura',
+        before: task.numeroFactura || '—', after: numeroFactura || '—' });
+    }
+    if (comentariosOc !== undefined && (task.comentariosOc || '') !== (comentariosOc || '')) {
+      updateRow.comentarios_oc = comentariosOc || null;
+      changes.push({ field: 'comentariosOc', label: 'Comentarios OC',
+        before: task.comentariosOc ? '(texto)' : '—', after: comentariosOc ? '(texto)' : '—' });
+    }
+
+    if (Object.keys(updateRow).length === 0) {
+      return { ok: true, noop: true };
+    }
+
+    const { error } = await supabase
+      .from('solicitudes')
+      .update(updateRow)
+      .eq('id', taskId);
+    if (error) {
+      reportError('Guardar factura/comentarios', error);
+      return { ok: false, error: error.message };
+    }
+
+    await appendHistoryEvent(taskId, {
+      action: 'factura/comentarios actualizados',
+      section: task.section,
+      fieldsChanged: changes.map(c => c.label),
+      changes
+    });
+
+    await loadAll();
+    return { ok: true };
+  }
+
   // ── UTILIDADES ───────────────────────────────────────────────────
   // loadSamples ya no existe — sample data deprecada con Supabase.
   // Se deja stub que no hace nada para compatibilidad con App.jsx.
@@ -735,6 +806,9 @@ export function useSolicitudes({ onError } = {}) {
     // Presupuesto
     cargarPresupuesto,
     quitarPresupuesto,
+
+    // Factura / comentarios OC (Punto 4)
+    guardarFacturaOc,
 
     // Helpers de vista
     tasksInSection,

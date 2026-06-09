@@ -99,7 +99,8 @@ export const FLOW_STEPS = {
     title: 'Generar número de RMA',
     subtitle: 'Cargá el número de RMA (5 dígitos)',
     fields: [
-      { key: 'rmaNumber', label: 'Número de RMA', placeholder: 'Ej: 12274', required: true, type: 'number', digits: 5 }
+      { key: 'rmaNumber',       label: 'Número de RMA', placeholder: 'Ej: 12274', required: true, type: 'number', digits: 5 },
+      { key: 'comentariosRma',  label: 'Comentarios',   placeholder: 'Información adicional sobre la RMA (opcional)', required: false, multiline: true }
     ]
   },
   rma_generada: {

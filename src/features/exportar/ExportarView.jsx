@@ -10,7 +10,7 @@ import {
   buildMetricasAntiguedad, buildPorArea, buildPorProveedor, buildPorSolicitante
 } from './exportBuilders';
 
-export function ExportarView({ tasks }) {
+export function ExportarView({ tasks, resolveUserName = null }) {
   const stats      = useMemo(() => calculateStats(tasks), [tasks]);
   const [exporting, setExporting] = useState(null);
   const [lastExport, setLastExport] = useState(null);
@@ -48,7 +48,7 @@ export function ExportarView({ tasks }) {
       const hojas = [
         { name: 'Resumen',             data: buildResumen(stats) },
         { name: 'Solicitudes',         data: buildSolicitudes(tasks) },
-        { name: 'Trazabilidad',        data: buildTrazabilidad(tasks) },
+        { name: 'Trazabilidad',        data: buildTrazabilidad(tasks, resolveUserName) },
         { name: 'Metricas antiguedad', data: buildMetricasAntiguedad(stats) },
         { name: 'Por area',            data: buildPorArea(tasks) },
         { name: 'Por proveedor',       data: buildPorProveedor(stats) },
@@ -80,7 +80,7 @@ export function ExportarView({ tasks }) {
   const reportes = [
     { name: 'resumen',      label: 'Resumen',              desc: 'KPIs principales y métricas globales',      icon: BarChart3,   accent: 'sky',     count: 13,                           builder: () => buildResumen(stats) },
     { name: 'solicitudes',  label: 'Solicitudes',          desc: 'Listado completo con todos los campos',     icon: ListChecks,  accent: 'orange',  count: tasks.length,                 builder: () => buildSolicitudes(tasks) },
-    { name: 'trazabilidad', label: 'Trazabilidad',         desc: 'Historial completo de eventos',             icon: Activity,    accent: 'violet',  count: tasks.reduce((a, t) => a + (t.history?.length || 0), 0), builder: () => buildTrazabilidad(tasks) },
+    { name: 'trazabilidad', label: 'Trazabilidad',         desc: 'Historial completo de eventos',             icon: Activity,    accent: 'violet',  count: tasks.reduce((a, t) => a + (t.history?.length || 0), 0), builder: () => buildTrazabilidad(tasks, resolveUserName) },
     { name: 'metricas',     label: 'Métricas de antigüedad',desc: 'Cumplimiento de las 3 etapas',            icon: Clock,       accent: 'orange',  count: 3,                            builder: () => buildMetricasAntiguedad(stats) },
     { name: 'area',         label: 'Por área',             desc: 'Distribución y performance',               icon: Building2,   accent: 'emerald', count: 3,                            builder: () => buildPorArea(tasks) },
     { name: 'proveedor',    label: 'Por proveedor',        desc: 'Volumen por proveedor',                    icon: Truck,       accent: 'violet',  count: stats.proveedores.length,     builder: () => buildPorProveedor(stats) },

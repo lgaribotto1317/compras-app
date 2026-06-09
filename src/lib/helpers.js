@@ -423,3 +423,27 @@ export function canBudget(task, user) {
 
   return isOwner || funcion === 'responsable_rma';
 }
+
+// ¿Puede el usuario cargar/editar número de factura y comentarios de OC?
+// Aplica desde oc_generada en adelante (incluye finalizadas: la factura
+// suele llegar después de recibir el material). Pueden hacerlo:
+//   - el creador (solicitante) de la solicitud
+//   - responsable_rma
+//   - compras
+//   - admin (transversal)
+// Espejo EXACTO del bloque v_editing_factura del trigger Postgres
+// (solicitudes_check_state_transitions). Si cambia uno, cambiar el otro.
+export function canEditFactura(task, user) {
+  if (!task || !user) return false;
+  if (task.cancelledAt) return false;
+  if (task.deletedAt)   return false;
+  if (!['oc_generada', 'finalizadas'].includes(task.section)) return false;
+
+  const role = user.app_metadata?.role;
+  if (role === 'admin') return true;
+
+  const funcion = user.app_metadata?.funcion;
+  const isOwner = task.createdBy && task.createdBy === user.id;
+
+  return isOwner || funcion === 'responsable_rma' || funcion === 'compras';
+}

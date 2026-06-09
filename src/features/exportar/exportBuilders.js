@@ -43,8 +43,11 @@ export function buildSolicitudes(tasks) {
     'Nro CMA':              t.cmaNumber   || '',
     'Nro OMA':              t.ocNumber    || '',
     'Monto':                t.monto       || '',
+    'N° Factura':           t.numeroFactura || '',
     'Fecha cierre':         t.fechaCierre || '',
     'Observaciones':        t.observaciones || '',
+    'Comentarios RMA':      t.comentariosRma || '',
+    'Comentarios OC':       t.comentariosOc || '',
     'Descripción':          t.descripcionDetallada || '',
     'Adjuntos':             (t.attachments || []).length,
     'Fecha creación':       new Date(t.createdAt).toLocaleString('es-AR'),
@@ -53,14 +56,21 @@ export function buildSolicitudes(tasks) {
   }));
 }
 
-export function buildTrazabilidad(tasks) {
+export function buildTrazabilidad(tasks, resolveUserName = null) {
   const rows = [];
   tasks.forEach(t => {
     (t.history || []).forEach(h => {
+      // Nombre completo desde profiles si está disponible; fallback al
+      // username antes del @ (mismo criterio que la UI del DetailModal).
+      const nombre = resolveUserName
+        ? resolveUserName(h)
+        : (h.userEmail ? h.userEmail.split('@')[0] : '');
       rows.push({
         'Número solicitud': t.numero || '—',
         'Título':           t.name,
         'Fecha/Hora':       new Date(h.at).toLocaleString('es-AR'),
+        'Usuario':          nombre,
+        'Email usuario':    h.userEmail || '',
         'Acción':           h.action,
         'Desde':            h.from ? (SECTION_BY_ID[h.from]?.name || h.from) : '',
         'Hacia':            h.to   ? (SECTION_BY_ID[h.to]?.name   || h.to)   : '',

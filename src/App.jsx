@@ -29,7 +29,7 @@ import { ConfirmModal } from './components/ui';
 import { Toast }        from './components/ui';
 import { EmptyState }   from './components/ui';
 import { FiltersBanner } from './components/ui';
-import { buildModalFilterChips, canCancel, canAdvance, canEdit, canBudget } from './lib/helpers';
+import { buildModalFilterChips, canCancel, canAdvance, canEdit, canBudget, canEditFactura } from './lib/helpers';
 
 // ─── INLINE STYLES & ANIMATIONS ──────────────────────────────────
 // Se inyectan una sola vez en el root. En el proyecto Vite esto va
@@ -92,9 +92,11 @@ export default function App() {
     includeCancelled, setIncludeCancelled,
     createTask, editTask, advanceTasks, deleteTask, cancelTask,
     cargarPresupuesto, quitarPresupuesto,
+    guardarFacturaOc,
     tasksInSection, reload
   } = useSolicitudes({
-    onError: msg => showToast(`⚠ ${msg}`, 'error')
+    onError: msg => showToast(`⚠ ${msg}`, 'error'),
+    enabled: !!user   // no cargar hasta que la sesión esté confirmada
   });
 
   // Realtime: ante cualquier cambio en solicitudes/history_events/attachments
@@ -371,7 +373,7 @@ export default function App() {
             resolveUserName={resolveUserName}
           />
         ) : mainView === 'exportar' ? (
-          <ExportarView tasks={tasks} />
+          <ExportarView tasks={tasks} resolveUserName={resolveUserName} />
         ) : (
           <>
             {/* Banner de filtros activos (solo Kanban; en Dashboard se arma adentro
@@ -447,6 +449,7 @@ export default function App() {
           canEdit={canEdit(detailTask, user)}
           canAdvance={canAdvance(detailTask, user)}
           canBudget={canBudget(detailTask, user)}
+          canEditFactura={canEditFactura(detailTask, user)}
           resolveUserName={resolveUserName}
           groupRows={detailGroup}
           onSelectMember={selectMember}
@@ -457,6 +460,19 @@ export default function App() {
           onCancel={() => { setCancellingTask(detailTask); closeDetail(); }}
           onCargarPresupuesto={() => { setCargandoPresupuesto(detailTask); closeDetail(); }}
           onQuitarPresupuesto={() => { setQuitandoPresupuesto(detailTask); closeDetail(); }}
+          onGuardarFactura={async (id, vals) => {
+            const r = await guardarFacturaOc(id, vals);
+            // Sincronizar el snapshot del detalle abierto para que el panel
+            // refleje lo guardado (y facturaDirty vuelva a false).
+            if (r?.ok && detailTask?.id === id) {
+              setDetailTask(prev => prev ? {
+                ...prev,
+                numeroFactura: vals.numeroFactura,
+                comentariosOc: vals.comentariosOc
+              } : prev);
+            }
+            return r;
+          }}
         />
       )}
 

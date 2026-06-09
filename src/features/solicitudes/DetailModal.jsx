@@ -26,6 +26,7 @@ function HistoryEntry({ event, resolveUserName }) {
     'archivo eliminado':       { icon: Trash2,        color: 'text-slate-600 bg-slate-50 border-slate-200' },
     'presupuesto cargado':     { icon: Receipt,       color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     'presupuesto removido':    { icon: Receipt,       color: 'text-orange-600 bg-orange-50 border-orange-200' },
+    'factura/comentarios actualizados': { icon: FileText, color: 'text-violet-600 bg-violet-50 border-violet-200' },
     'cancelada':               { icon: XCircle,       color: 'text-red-700 bg-red-50 border-red-200' },
     'eliminada':               { icon: Trash2,        color: 'text-red-700 bg-red-50 border-red-200' }
   };
@@ -134,8 +135,9 @@ function DetailRow({ icon: Icon, label, value }) {
 export function DetailModal({
   task, onClose, onEdit, onDelete, onAdvance, onCancel,
   onCargarPresupuesto, onQuitarPresupuesto,
+  onGuardarFactura,
   canCancel = false, canDelete = false, canEdit = false,
-  canAdvance = false, canBudget = false,
+  canAdvance = false, canBudget = false, canEditFactura = false,
   resolveUserName,
   groupRows = null, onSelectMember
 }) {
@@ -155,6 +157,39 @@ export function DetailModal({
   // Loading flag de descargas — para mostrar spinner en el botón mientras
   // se pide la signed URL corta antes de navegar.
   const [downloadingId, setDownloadingId] = useState(null);
+
+  // Punto 4: panel editable de factura/comentarios OC. Aparece desde
+  // oc_generada en adelante. El estado local arranca con lo que hay en DB
+  // y se sincroniza si cambia la task (ej. realtime de otro usuario).
+  const showFacturaPanel = ['oc_generada', 'finalizadas'].includes(task.section);
+  const [facturaForm, setFacturaForm] = useState({
+    numeroFactura: task.numeroFactura || '',
+    comentariosOc: task.comentariosOc || ''
+  });
+  const [savingFactura, setSavingFactura] = useState(false);
+  useEffect(() => {
+    setFacturaForm({
+      numeroFactura: task.numeroFactura || '',
+      comentariosOc: task.comentariosOc || ''
+    });
+  }, [task.id, task.numeroFactura, task.comentariosOc]);
+
+  const facturaDirty =
+    (facturaForm.numeroFactura || '') !== (task.numeroFactura || '') ||
+    (facturaForm.comentariosOc || '') !== (task.comentariosOc || '');
+
+  async function handleSaveFactura() {
+    if (!onGuardarFactura || !facturaDirty) return;
+    setSavingFactura(true);
+    try {
+      await onGuardarFactura(task.id, {
+        numeroFactura: facturaForm.numeroFactura.trim(),
+        comentariosOc: facturaForm.comentariosOc.trim()
+      });
+    } finally {
+      setSavingFactura(false);
+    }
+  }
 
   useEffect(() => {
     // Pedir signed URL larga para cada attachment imagen al abrir el modal.
@@ -356,6 +391,7 @@ export function DetailModal({
             />
           )}
           {task.monto      && <DetailRow icon={Receipt}  label="Monto"        value={<span className="font-mono">{task.monto}</span>} />}
+          {task.numeroFactura && <DetailRow icon={FileText} label="N° Factura"   value={<span className="font-mono">{task.numeroFactura}</span>} />}
           {task.fechaCierre && <DetailRow icon={Receipt}  label="Fecha cierre" value={<span className="font-mono">{task.fechaCierre}</span>} />}
         </div>
 
@@ -372,6 +408,74 @@ export function DetailModal({
             <p className="text-sm text-slate-700 whitespace-pre-line bg-slate-50 rounded-md p-3 border border-slate-200">
               {task.observaciones}
             </p>
+          </div>
+        )}
+
+        {task.comentariosRma && (
+          <div className="mb-5">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">Comentarios RMA</p>
+            <p className="text-sm text-slate-700 whitespace-pre-line bg-slate-50 rounded-md p-3 border border-slate-200">
+              {task.comentariosRma}
+            </p>
+          </div>
+        )}
+
+        {/* Punto 4: Factura + comentarios OC. Editable si canEditFactura;
+            si no, lectura (solo si hay algo cargado). */}
+        {showFacturaPanel && (canEditFactura || task.numeroFactura || task.comentariosOc) && (
+          <div className="mb-5">
+            <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-2 flex items-center gap-1.5">
+              <FileText size={12} /> Facturación
+            </p>
+            {canEditFactura && !isCancelled ? (
+              <div className="space-y-2.5 bg-slate-50 rounded-md p-3 border border-slate-200">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Número de factura</label>
+                  <input
+                    type="text"
+                    value={facturaForm.numeroFactura}
+                    onChange={e => setFacturaForm(f => ({ ...f, numeroFactura: e.target.value }))}
+                    placeholder="Ej: 0001-00012345"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-600 focus:border-sky-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">Comentarios</label>
+                  <textarea
+                    value={facturaForm.comentariosOc}
+                    onChange={e => setFacturaForm(f => ({ ...f, comentariosOc: e.target.value }))}
+                    placeholder="Información adicional sobre la factura o la OC..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sky-600 focus:border-sky-600"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSaveFactura}
+                    disabled={!facturaDirty || savingFactura}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {savingFactura ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                    Guardar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2 bg-slate-50 rounded-md p-3 border border-slate-200">
+                {task.numeroFactura && (
+                  <p className="text-sm text-slate-700">
+                    <span className="text-[11px] text-slate-500">N° Factura: </span>
+                    <span className="font-mono">{task.numeroFactura}</span>
+                  </p>
+                )}
+                {task.comentariosOc && (
+                  <p className="text-sm text-slate-700 whitespace-pre-line">
+                    <span className="text-[11px] text-slate-500 block mb-0.5">Comentarios:</span>
+                    {task.comentariosOc}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
