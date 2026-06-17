@@ -1,4 +1,4 @@
-import { Package, Receipt, DollarSign, ShoppingCart, CheckCircle2 } from 'lucide-react';
+import { Package, Receipt, ShoppingCart, CheckCircle2 } from 'lucide-react';
 
 // ─── SECCIONES DEL FLUJO ──────────────────────────────────────────
 export const SECTIONS = [
@@ -29,20 +29,6 @@ export const SECTIONS = [
     btn: 'bg-sky-600 hover:bg-sky-700',
     bar: 'bg-sky-500',
     accent: 'sky'
-  },
-  {
-    id: 'rma_valorizada',
-    name: 'RMA valorizada',
-    short: 'Valorizada',
-    icon: DollarSign,
-    bg: 'bg-teal-50',
-    border: 'border-teal-200',
-    text: 'text-teal-900',
-    chip: 'bg-teal-50 text-teal-800 border border-teal-200',
-    dot: 'bg-teal-500',
-    btn: 'bg-teal-600 hover:bg-teal-700',
-    bar: 'bg-teal-500',
-    accent: 'teal'
   },
   {
     id: 'oc_generada',
@@ -91,7 +77,9 @@ export const PRIORIDAD_ORDER = { Alta: 0, Media: 1, Baja: 2 };
 
 // ─── FLUJO DE PASOS ───────────────────────────────────────────────
 // Define qué se pide al usuario al avanzar desde cada sección.
-// Flujo: solicitada → generada → valorizada → OC generada → OC finalizada
+// Flujo: solicitada → generada → OC generada → OC finalizada
+// (La etapa de valorización fue eliminada: de RMA generada se pasa
+//  directo a OC generada, cargando OC + proveedor adjudicado + monto.)
 export const FLOW_STEPS = {
   rma_solicitada: {
     next: 'rma_generada',
@@ -104,23 +92,15 @@ export const FLOW_STEPS = {
     ]
   },
   rma_generada: {
-    next: 'rma_valorizada',
-    label: 'Valorizar RMA',
-    title: 'Valorizar RMA',
-    subtitle: 'Cargá el número de CMA y la valorización',
-    fields: [
-      { key: 'cmaNumber', label: 'Número de CMA', placeholder: 'Ej: 30145', required: true, type: 'number', digits: 5 },
-      { key: 'monto',     label: 'Monto',         placeholder: 'Ej: 125000', required: true, type: 'number' }
-    ]
-  },
-  rma_valorizada: {
     next: 'oc_generada',
     label: 'Generar OC',
     title: 'Generar Orden de Compra',
     subtitle: 'Datos de la OC emitida',
     fields: [
       { key: 'ocNumber',            label: 'Número de OC',         placeholder: 'Ej: 22338',         required: true, type: 'number', digits: 5 },
-      { key: 'proveedorAdjudicado', label: 'Proveedor adjudicado', placeholder: 'Buscar proveedor por nombre o código...', required: true, widget: 'proveedor', codeKey: 'proveedorAdjudicadoCodigo' }
+      { key: 'proveedorAdjudicado', label: 'Proveedor adjudicado', placeholder: 'Buscar proveedor por nombre o código...', required: true, widget: 'proveedor', codeKey: 'proveedorAdjudicadoCodigo' },
+      { key: 'monto',               label: 'Monto',                placeholder: 'Ej: 125000',        required: true, type: 'number' },
+      { key: 'fechaOc',             label: 'Fecha de OC',          placeholder: 'YYYY-MM-DD',         required: false, type: 'date' }
     ]
   },
   oc_generada: {
@@ -141,7 +121,6 @@ export const FLOW_STEPS = {
 // en AdvanceModal y advanceTask lo levanta automáticamente.
 export const CAMPOS_UNICOS = {
   rmaNumber: 'Número de RMA',
-  cmaNumber: 'Número de CMA',
   ocNumber:  'Número de OC'
 };
 
@@ -151,18 +130,16 @@ export const CAMPOS_UNICOS = {
 // el valor (no nulo) del campo identificador de abajo. En rma_solicitada
 // las filas son individuales (todavía no tienen número) → null.
 //
-//   rma_generada   → comparten rmaNumber  (varias solicitudes → 1 RMA)
-//   rma_valorizada → comparten cmaNumber  (varias RMA → 1 CMA)
-//   oc_generada    → comparten ocNumber   (CMA → OMA, 1:1)
-//   finalizadas    → comparten ocNumber
+//   rma_generada → comparten rmaNumber  (varias solicitudes → 1 RMA)
+//   oc_generada  → comparten ocNumber   (varias RMA → 1 OC/OMA)
+//   finalizadas  → comparten ocNumber
 //
 // IMPORTANTE: al haber dropeado los índices únicos en Postgres
-// (rma/cma/oc_number), la integridad "un número = un grupo" la sostiene
+// (rma/oc_number), la integridad "un número = un grupo" la sostiene
 // AHORA la validación client-side en advanceTasks (ver useSolicitudes).
 export const GROUP_KEY_BY_SECTION = {
   rma_solicitada: null,
   rma_generada:   'rmaNumber',
-  rma_valorizada: 'cmaNumber',
   oc_generada:    'ocNumber',
   finalizadas:    'ocNumber'
 };
@@ -170,9 +147,9 @@ export const GROUP_KEY_BY_SECTION = {
 // Secciones donde el avance FUSIONA por multi-select: se eligen varias
 // cards y se les asigna UN número compartido. El resto de los avances
 // son "group-aware" (mueven el grupo entero, sin elegir a otros).
-//   rma_solicitada → Generar RMA : multi-select de solicitudes individuales.
-//   rma_generada   → Valorizar   : multi-select de RMA (grupos) → 1 CMA.
-// (Lo consume la UI en la Tanda 1b; se define acá para centralizar config.)
+//   rma_solicitada → Generar RMA : multi-select de solicitudes individuales → 1 RMA.
+//   rma_generada   → Generar OC  : multi-select de RMA (grupos) → 1 OC/OMA.
+// (Lo consume la UI; se define acá para centralizar config.)
 export const CONSOLIDA_EN = ['rma_solicitada', 'rma_generada'];
 
 // ─── LÍMITES DE ADJUNTOS ──────────────────────────────────────────
@@ -232,7 +209,6 @@ export const FUNCIONES = {
 export const CANCEL_RULES = {
   rma_solicitada: [FUNCIONES.RESPONSABLE_RMA],
   rma_generada:   [FUNCIONES.RESPONSABLE_RMA, FUNCIONES.COMPRAS],
-  rma_valorizada: [FUNCIONES.COMPRAS],
   oc_generada:    [FUNCIONES.COMPRAS]
   // finalizadas: NO se puede cancelar (no aparece en el mapa)
 };

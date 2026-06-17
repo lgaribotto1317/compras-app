@@ -57,7 +57,7 @@ export function normalizarIdentificador(v) {
   return (v ?? '').toString().trim().toLowerCase();
 }
 
-// Dado un campo único (rmaNumber / cmaNumber / ocNumber), un valor y la
+// Dado un campo único (rmaNumber / ocNumber), un valor y la
 // lista completa de solicitudes, devuelve true si el valor ya está en uso
 // por una fila FUERA de la selección excluida.
 //
@@ -82,7 +82,7 @@ export function existeIdentificadorDuplicado(allTasks, fieldKey, value, exclude)
 
 // ─── AGRUPACIÓN (CONSOLIDACIÓN N→1) ───────────────────────────────
 // groupKeyForSection: campo identificador del grupo en esa sección
-// (rmaNumber / cmaNumber / ocNumber) o null si las filas son individuales.
+// (rmaNumber / ocNumber) o null si las filas son individuales.
 export function groupKeyForSection(section) {
   return GROUP_KEY_BY_SECTION[section] || null;
 }
@@ -112,7 +112,7 @@ function topPrioridadDe(rows) {
 // Cada grupo expone agregados para que la card de grupo (Tanda 1b) muestre
 // recuento, áreas, prioridad dominante, adjuntos totales y flags. `rep` es
 // la fila representativa (primera) — útil para permisos (canAdvance) y para
-// abrir el detalle en el interino. `monto` es el de la CMA (replicado en
+// abrir el detalle en el interino. `monto` es el de la OC (replicado en
 // todos los miembros → se toma 1× de rep).
 export function groupItems(items, section) {
   const keyField = groupKeyForSection(section);
@@ -135,7 +135,7 @@ export function groupItems(items, section) {
     const keyVal = keyField ? (rep[keyField] ?? null) : null;
     groups.push({
       id:                  rep.id,                 // representativa (click → detalle, interino)
-      keyField,                                    // 'rmaNumber' | 'cmaNumber' | 'ocNumber' | null
+      keyField,                                    // 'rmaNumber' | 'ocNumber' | null
       key:                 keyVal,                 // valor del número del grupo
       rows,
       rep,
@@ -152,7 +152,7 @@ export function groupItems(items, section) {
       // trazabilidad en la card (consolidación N→1):
       //   - solicitudNumeros: el #00000N de cada solicitud miembro.
       //   - rmaNumeros:       los RMA distintos que componen el grupo
-      //                       (una CMA fusiona varias RMA).
+      //                       (una OC puede fusionar varias RMA).
       solicitudNumeros:    rows.map(r => r.numero).filter(Boolean),
       rmaNumeros:          [...new Set(rows.map(r => r.rmaNumber).filter(Boolean))]
     });
@@ -360,10 +360,9 @@ export function isUserAdmin(user) {
 // Si las reglas cambian, hay que tocar acá Y en el trigger.
 
 // ¿Puede el usuario AVANZAR la solicitud (cambiar a la próxima sección)?
-//   rma_solicitada → rma_generada  : responsable_rma
-//   rma_generada   → rma_valorizada: compras  (Valorizar RMA)
-//   rma_valorizada → oc_generada   : compras  (Generar OC)
-//   oc_generada    → finalizadas   : responsable_rma  (recepción de material)
+//   rma_solicitada → rma_generada : responsable_rma
+//   rma_generada   → oc_generada  : compras  (Generar OC)
+//   oc_generada    → finalizadas  : responsable_rma  (recepción de material)
 export function canAdvance(task, user) {
   if (!task || !user) return false;
   if (task.cancelledAt) return false;
@@ -376,7 +375,6 @@ export function canAdvance(task, user) {
 
   if (task.section === 'rma_solicitada') return funcion === 'responsable_rma';
   if (task.section === 'rma_generada')   return funcion === 'compras';
-  if (task.section === 'rma_valorizada') return funcion === 'compras';
   if (task.section === 'oc_generada')    return funcion === 'responsable_rma';
   // finalizadas: no se avanza más
   return false;
@@ -385,7 +383,6 @@ export function canAdvance(task, user) {
 // ¿Puede el usuario EDITAR campos de la solicitud (sin avanzar etapa)?
 //   rma_solicitada : creador
 //   rma_generada   : responsable_rma
-//   rma_valorizada : compras
 //   oc_generada    : compras
 //   finalizadas    : nadie (excepto admin)
 export function canEdit(task, user) {
@@ -401,7 +398,6 @@ export function canEdit(task, user) {
 
   if (task.section === 'rma_solicitada') return isOwner;
   if (task.section === 'rma_generada')   return funcion === 'responsable_rma';
-  if (task.section === 'rma_valorizada') return funcion === 'compras';
   if (task.section === 'oc_generada')    return funcion === 'compras';
   // finalizadas: nadie editable
   return false;

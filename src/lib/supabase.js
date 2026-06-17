@@ -51,6 +51,7 @@ export function rowToTask(row, history = [], attachments = []) {
     cmaNumber:           row.cma_number,
     ocNumber:            row.oc_number,
     monto:               row.monto != null ? String(row.monto) : null,
+    fechaOc:             row.fecha_oc,
     fechaCierre:         row.fecha_cierre,
     observaciones:       row.observaciones,
     comentariosRma:      row.comentarios_rma || '',
@@ -93,6 +94,7 @@ export function taskToRow(data) {
   if (data.cmaNumber            !== undefined) row.cma_number            = data.cmaNumber;
   if (data.ocNumber             !== undefined) row.oc_number             = data.ocNumber;
   if (data.monto                !== undefined) row.monto                 = data.monto ? Number(data.monto) : null;
+  if (data.fechaOc              !== undefined) row.fecha_oc              = data.fechaOc || null;
   if (data.fechaCierre          !== undefined) row.fecha_cierre          = data.fechaCierre || null;
   if (data.observaciones        !== undefined) row.observaciones         = data.observaciones;
   if (data.comentariosRma       !== undefined) row.comentarios_rma       = data.comentariosRma || null;

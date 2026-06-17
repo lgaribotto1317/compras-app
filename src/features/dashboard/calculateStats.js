@@ -15,7 +15,7 @@ import { SECTIONS, GROUP_KEY_BY_SECTION, ESTADO_MES_MANUAL } from '../../lib/con
 export function calculateStats(tasks) {
   // ─── DEDUPE POR GRUPO (CONSOLIDACIÓN) ─────────────────────────────
   // Una fila por grupo según la group-key de su sección:
-  //   rma_generada → rmaNumber,  rma_valorizada/oc_generada/finalizadas → cma/ocNumber
+  //   rma_generada → rmaNumber,  oc_generada/finalizadas → ocNumber
   // Las filas que comparten número avanzaron juntas (misma fecha de evento),
   // así que el representante conserva las fechas del grupo. Sin número (o
   // rma_solicitada, cuya group-key es null) cada fila cuenta como su propio grupo.
@@ -194,8 +194,8 @@ export function calculateStats(tasks) {
   const compliance_solicitud = buildComplianceS(aging_solicitud, enRmaSolicitada.length);
 
   // ── Flujo 3: RMA esperando OC → OC generada ───────────────────────
-  // "Esperando OC" = solicitudes en rma_generada O rma_valorizada (ambas
-  // ya tienen RMA pero todavía no OC). Buckets: 0-15, 16-30, 31-60, >60.
+  // "Esperando OC" = solicitudes en rma_generada (ya tienen RMA pero
+  // todavía no OC). Buckets: 0-15, 16-30, 31-60, >60.
   // Mide días desde el evento "Generar RMA". Si no hay evento, usa createdAt.
   const buckets_rma = [
     { key: '0-15',  label: '0-15 días',  max: 15,   color: 'bg-emerald-500' },
@@ -203,10 +203,10 @@ export function calculateStats(tasks) {
     { key: '31-60', label: '31-60 días', max: 60,   color: 'bg-orange-500'  },
     { key: '60+',   label: '> 60 días',  max: null, color: 'bg-red-600'     }
   ];
-  const enRmaGenerada = tasks.filter(t => t.section === 'rma_generada' || t.section === 'rma_valorizada');
-  // DISTINCT por grupo: "esperando OC" cuenta RMAs (en rma_generada) y CMAs
-  // (en rma_valorizada), no solicitudes. Una RMA/CMA consolidada = 1 cosa
-  // esperando OC. Las filas del grupo comparten el evento Generar RMA.
+  const enRmaGenerada = tasks.filter(t => t.section === 'rma_generada');
+  // DISTINCT por grupo: "esperando OC" cuenta RMAs (en rma_generada), no
+  // solicitudes. Una RMA consolidada = 1 cosa esperando OC. Las filas del
+  // grupo comparten el evento Generar RMA.
   const enRmaGeneradaGroups = dedupeByGroup(enRmaGenerada);
   const refDateRma = (t) => {
     const evRma = (t.history || []).find(h => h.to === 'rma_generada');
