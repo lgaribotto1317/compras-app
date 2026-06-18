@@ -358,7 +358,7 @@ export default function App() {
       </header>
 
       {/* ── MAIN ───────────────────────────────────────────────── */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8 pb-32">
+      <main className={`${mainView === 'kanban' ? 'max-w-none' : 'max-w-7xl'} mx-auto px-3 sm:px-6 py-5 sm:py-8 pb-32`}>
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-500">
             <Loader2 className="animate-spin mb-3" size={28} />

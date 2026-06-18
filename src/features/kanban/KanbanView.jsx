@@ -121,7 +121,7 @@ export function KanbanView({
       </div>
 
       {/* DESKTOP: 5 columnas en simultáneo */}
-      <div className="hidden md:grid md:grid-cols-5 md:gap-3 md:items-start">
+      <div className="hidden md:grid md:grid-cols-4 md:gap-3 md:items-start">
         {SECTIONS.map(section => {
           const items = tasksInSection(section.id);
           return (
