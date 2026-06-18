@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Plus, Filter, LayoutGrid, BarChart3, Download, Loader2, Package
+  Plus, Filter, LayoutGrid, BarChart3, Download, Loader2, Package, Upload
 } from 'lucide-react';
 
 import { SECTIONS, SECTION_BY_ID, FLOW_STEPS } from './lib/constants';
@@ -18,6 +18,7 @@ import { ChangePasswordModal }   from './features/auth/ChangePasswordModal';
 import { KanbanView }            from './features/kanban/KanbanView';
 import { Dashboard }             from './features/dashboard/Dashboard';
 import { ExportarView }          from './features/exportar/ExportarView';
+import { ImportarView }          from './features/importar/ImportarView';
 import { TaskFormModal }         from './features/solicitudes/TaskFormModal';
 import { DetailModal }           from './features/solicitudes/DetailModal';
 import { AdvanceModal }          from './features/solicitudes/AdvanceModal';
@@ -60,7 +61,7 @@ export default function App() {
   const { user, userName, isAdmin, funcion, loading: authLoading, signIn, signOut } = useAuth();
 
   // ── Estado UI ────────────────────────────────────────────────────
-  const [mainView,     setMainView]     = useState('kanban');   // 'kanban' | 'dashboard' | 'exportar'
+  const [mainView,     setMainView]     = useState('kanban');   // 'kanban' | 'dashboard' | 'exportar' | 'importar'
   const [activeSection, setActiveSection] = useState('rma_solicitada');
 
   // Modales abiertos
@@ -306,6 +307,9 @@ export default function App() {
               <ViewTab active={mainView === 'kanban'}    onClick={() => setMainView('kanban')}    icon={LayoutGrid} label="Kanban"    />
               <ViewTab active={mainView === 'dashboard'} onClick={() => setMainView('dashboard')} icon={BarChart3}  label="Dashboard" />
               <ViewTab active={mainView === 'exportar'}  onClick={() => setMainView('exportar')}  icon={Download}   label="Exportar"  />
+              {(funcion === 'compras' || isAdmin) && (
+                <ViewTab active={mainView === 'importar'} onClick={() => setMainView('importar')} icon={Upload} label="Importar" />
+              )}
               <div className="flex-1" />
               {(mainView === 'kanban' || mainView === 'dashboard') && (
                 <button
@@ -374,6 +378,8 @@ export default function App() {
           />
         ) : mainView === 'exportar' ? (
           <ExportarView tasks={tasks} resolveUserName={resolveUserName} />
+        ) : mainView === 'importar' ? (
+          <ImportarView onApplied={reload} />
         ) : (
           <>
             {/* Banner de filtros activos (solo Kanban; en Dashboard se arma adentro
