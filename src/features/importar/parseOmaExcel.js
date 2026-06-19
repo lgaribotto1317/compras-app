@@ -26,8 +26,12 @@ import * as XLSX from 'xlsx';
 // Nombres de columna del export. Si el sistema origen cambia los headers,
 // se ajustan aca (no hace falta tocar la logica).
 const COL = {
-  rma:        'N° RMA',
-  oc:         'Nro OC',
+  // El export del sistema origen nombra los documentos por posicion:
+  //   NroComp1 = RMA  (CodComp1='RMA')
+  //   NroComp2 = CMA  (CodComp2='CMA')  -> NO se importa
+  //   NroComp3 = OMA  (CodComp3='OMA')  -> es la "Nro OC" en compras-app
+  rma:        'NroComp1',
+  oc:         'NroComp3',
   proveedor:  'Proveedor',
   codProv:    'CodProveedor',
   fechaOma:   'FechaComp3',
@@ -36,6 +40,13 @@ const COL = {
 };
 
 const s = (v) => (v === null || v === undefined ? '' : String(v).trim());
+
+// Normaliza identificadores numericos del export. RMA/OC vienen con ceros
+// a la izquierda en 8 digitos ("00014607"); compras-app los guarda en 5
+// digitos sin ceros adelante ("14607", CHECK ^\d{5}$). Stripea ceros
+// iniciales conservando al menos un digito. Sin esto, el match contra las
+// solicitudes existentes da vacio (todo cae como frenada).
+const normNum = (v) => s(v).replace(/^0+(?=\d)/, '');
 
 function toNumber(v) {
   if (typeof v === 'number') return v;
@@ -100,13 +111,17 @@ export function parseOmaExcel(fileData) {
   const ocToRmas = new Map();      // oc  -> Set(rma)    (para detectar OC compartida)
   const problemas = [];
   let filasValidas = 0;
+  let filasSinOc = 0;   // filas de RMA sin OMA todavia (nada que importar)
 
   for (const r of rows) {
-    const rma = s(r[COL.rma]);
-    const oc  = s(r[COL.oc]);
+    const rma = normNum(r[COL.rma]);
+    const oc  = normNum(r[COL.oc]);
     const precio = toNumber(r[COL.precio]);
 
     if (!rma) { continue; } // fila sin RMA: se ignora (no deberia pasar en este export)
+    // Fila de una RMA que todavia NO tiene OMA (NroComp3 vacio): no hay OC
+    // para importar -> se saltea (no es un problema, es estado normal).
+    if (!oc) { filasSinOc++; continue; }
     if (Number.isNaN(precio)) {
       problemas.push({ rma, oc, motivo: `precio no numerico: "${r[COL.precio]}"` });
       continue;
@@ -140,7 +155,6 @@ export function parseOmaExcel(fileData) {
     const omas = [];
     for (const oma of ocMap.values()) {
       oma.monto = round2(oma.monto);
-      if (!oma.oc) problemas.push({ rma, oc: '', motivo: 'OMA sin numero de OC' });
       if (oma.fecha === null) problemas.push({ rma, oc: oma.oc, motivo: 'fecha de OMA invalida o vacia' });
       omas.push(oma);
       omasTotal++;
@@ -159,6 +173,7 @@ export function parseOmaExcel(fileData) {
     payload,
     resumen: {
       filas: filasValidas,
+      filasSinOc,
       rmas: payload.length,
       omas: omasTotal,
       montoTotal: round2(montoTotal),
