@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Plus, Filter, LayoutGrid, BarChart3, Download, Loader2, Package, Upload
+  Plus, Filter, LayoutGrid, BarChart3, Download, Loader2, Package, Upload, Calendar
 } from 'lucide-react';
 
 import { SECTIONS, SECTION_BY_ID, FLOW_STEPS } from './lib/constants';
@@ -16,7 +16,8 @@ import { LoginScreen }           from './features/auth/LoginScreen';
 import { UserMenu }              from './features/auth/UserMenu';
 import { ChangePasswordModal }   from './features/auth/ChangePasswordModal';
 import { KanbanView }            from './features/kanban/KanbanView';
-import { Dashboard }             from './features/dashboard/Dashboard';
+import { Dashboard, PeriodSelector } from './features/dashboard/Dashboard';
+import { DEFAULT_PERIOD, filterTasksByPeriod } from './features/dashboard/dateFilter';
 import { ExportarView }          from './features/exportar/ExportarView';
 import { ImportarView }          from './features/importar/ImportarView';
 import { TaskFormModal }         from './features/solicitudes/TaskFormModal';
@@ -63,6 +64,7 @@ export default function App() {
   // ── Estado UI ────────────────────────────────────────────────────
   const [mainView,     setMainView]     = useState('kanban');   // 'kanban' | 'dashboard' | 'exportar' | 'importar'
   const [activeSection, setActiveSection] = useState('rma_solicitada');
+  const [period,        setPeriod]        = useState(DEFAULT_PERIOD);  // filtro de fechas del Kanban (independiente del Dashboard)
 
   // Modales abiertos
   const [showNewModal,          setShowNewModal]          = useState(false);
@@ -249,6 +251,18 @@ export default function App() {
   // Chips actuales para el banner. Si no hay filtros activos del modal, es array vacío.
   const modalChips = buildModalFilterChips({ search, filterPrioridad, filterArea, filterParada, filterAuditoria, filterPresupuesto, includeCancelled });
 
+  // ── Filtro de período del Kanban (independiente del Dashboard) ────
+  // Se aplica SOLO al camino del Kanban: envuelve tasksInSection y recalcula
+  // los counts de las columnas/tabs. El Dashboard sigue usando su propio
+  // selector sobre `filtered`, asi que no hay doble filtrado.
+  const kanbanTasksInSection = (sectionId) => filterTasksByPeriod(tasksInSection(sectionId), period);
+  const kanbanCounts = useMemo(() => {
+    const c = {};
+    SECTIONS.forEach(s => { c[s.id] = 0; });
+    filterTasksByPeriod(filtered, period).forEach(t => { if (c[t.section] !== undefined) c[t.section]++; });
+    return c;
+  }, [filtered, period]);
+
   // ── Render ───────────────────────────────────────────────────────
 
   // 1) Mientras chequea sesión persistida: spinner. Evita parpadeo de
@@ -347,7 +361,7 @@ export default function App() {
                     <span className={`ml-0.5 px-1.5 rounded-full text-[10px] font-mono font-semibold ${
                       isActive ? 'bg-slate-50 text-slate-900' : 'bg-white text-slate-700'
                     }`}>
-                      {counts[s.id] || 0}
+                      {kanbanCounts[s.id] || 0}
                     </span>
                   </button>
                 );
@@ -358,7 +372,7 @@ export default function App() {
       </header>
 
       {/* ── MAIN ───────────────────────────────────────────────── */}
-      <main className={`${mainView === 'kanban' ? 'max-w-none' : 'max-w-7xl'} mx-auto px-3 sm:px-6 py-5 sm:py-8 pb-32`}>
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8 pb-32">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-500">
             <Loader2 className="animate-spin mb-3" size={28} />
@@ -382,6 +396,14 @@ export default function App() {
           <ImportarView onApplied={reload} />
         ) : (
           <>
+            {/* Filtro de período (independiente del Dashboard) */}
+            <div className="mb-4 bg-white rounded-xl border border-slate-200 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar size={14} className="text-slate-400" />
+                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Período</span>
+              </div>
+              <PeriodSelector period={period} onChange={setPeriod} />
+            </div>
             {/* Banner de filtros activos (solo Kanban; en Dashboard se arma adentro
                 porque suma el chip de período del filtro de fechas). */}
             {modalChips.length > 0 && (
@@ -397,7 +419,7 @@ export default function App() {
             <KanbanView
               activeSection={activeSection}
               setActiveSection={setActiveSection}
-              tasksInSection={tasksInSection}
+              tasksInSection={kanbanTasksInSection}
               onCardClick={openDetail}
               onGroupClick={openGroupDetail}
               onAdvance={beginAdvance}

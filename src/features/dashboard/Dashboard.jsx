@@ -518,7 +518,7 @@ function PendientesUnificado({ stats, onGoToKanban }) {
 // Selector de período para el filtro de fechas del Dashboard. Modelo 1:
 // presets cerrados (esta semana, mes, trimestre, semestre, año, personalizado).
 // Multi-año desde 2026.
-function PeriodSelector({ period, onChange }) {
+export function PeriodSelector({ period, onChange }) {
   const years      = getAvailableYears();
   const currentYr  = years[0];
 
