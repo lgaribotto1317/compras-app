@@ -321,7 +321,7 @@ export default function App() {
               <ViewTab active={mainView === 'kanban'}    onClick={() => setMainView('kanban')}    icon={LayoutGrid} label="Kanban"    />
               <ViewTab active={mainView === 'dashboard'} onClick={() => setMainView('dashboard')} icon={BarChart3}  label="Dashboard" />
               <ViewTab active={mainView === 'exportar'}  onClick={() => setMainView('exportar')}  icon={Download}   label="Exportar"  />
-              {(funcion === 'compras' || isAdmin) && (
+              {(funcion === 'compras' || funcion === 'responsable_rma' || isAdmin) && (
                 <ViewTab active={mainView === 'importar'} onClick={() => setMainView('importar')} icon={Upload} label="Importar" />
               )}
               <div className="flex-1" />
