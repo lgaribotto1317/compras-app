@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Plus, Filter, LayoutGrid, BarChart3, Download, Loader2, Package, Upload, Calendar
 } from 'lucide-react';
@@ -10,6 +10,7 @@ import { useProfiles } from './hooks/useProfiles';
 import { useRealtime } from './hooks/useRealtime';
 import { useToast } from './hooks/useToast';
 import { useAuth } from './hooks/useAuth';
+import { useNotifications } from './hooks/useNotifications';
 
 // Features
 import { LoginScreen }           from './features/auth/LoginScreen';
@@ -25,6 +26,7 @@ import { DetailModal }           from './features/solicitudes/DetailModal';
 import { AdvanceModal }          from './features/solicitudes/AdvanceModal';
 import { CargarPresupuestoModal, QuitarPresupuestoModal, FiltersModal } from './features/solicitudes/FiltersModal';
 import { CancelarSolicitudModal } from './features/solicitudes/CancelarSolicitudModal';
+import { NotificationBanner, UpdatedFilterChip } from './components/NotificationBanner';
 
 // Components
 import { ConfirmModal } from './components/ui';
@@ -32,6 +34,7 @@ import { Toast }        from './components/ui';
 import { EmptyState }   from './components/ui';
 import { FiltersBanner } from './components/ui';
 import { buildModalFilterChips, canCancel, canAdvance, canEdit, canBudget, canEditFactura } from './lib/helpers';
+import { notifGroupKey } from './lib/notifications';
 
 // ─── INLINE STYLES & ANIMATIONS ──────────────────────────────────
 // Se inyectan una sola vez en el root. En el proyecto Vite esto va
@@ -78,6 +81,11 @@ export default function App() {
   const [quitandoPresupuesto,   setQuitandoPresupuesto]   = useState(null);
   const [showFilters,           setShowFilters]           = useState(false);
   const [showChangePassword,    setShowChangePassword]    = useState(false);
+  // Notificaciones: toggle "ver actualizadas" del Kanban. Al activarlo,
+  // forzamos includeCancelled=true (para que las canceladas calificadas
+  // sean visibles) recordando el valor previo para restaurarlo al salir.
+  const [filterUpdatedOnly, setFilterUpdatedOnly] = useState(false);
+  const prevIncludeCancelledRef = useRef(false);
 
   // ── Lógica de negocio ────────────────────────────────────────────
   // useToast va primero para poder pasar showToast como onError handler
@@ -118,6 +126,30 @@ export default function App() {
   const { resolveUserName } = useProfiles({
     onError: msg => showToast(`⚠ ${msg}`, 'error')
   });
+
+  // Notificaciones in-app: banner "hay actualizaciones" + set de claves de
+  // grupo calificadas desde el último checkpoint. Corre una vez por sesión
+  // (no se re-dispara con cada refresh de tasks vía Realtime).
+  const {
+    showBanner: showNotifBanner,
+    summary: notifSummary,
+    qualifyingGroupKeys,
+    touchCheckpoint
+  } = useNotifications({
+    user,
+    enabled: !!user,
+    onError: msg => showToast(`⚠ ${msg}`, 'error')
+  });
+
+  // Expande cada grupo calificado a TODAS las filas que lo componen (para
+  // que una card consolidada aparezca completa, no a medias) usando la
+  // MISMA clave de agrupación que ya usa el Kanban para consolidar N→1.
+  const updatedTaskIds = useMemo(() => {
+    if (qualifyingGroupKeys.size === 0) return new Set();
+    return new Set(
+      tasks.filter(t => qualifyingGroupKeys.has(notifGroupKey(t))).map(t => t.id)
+    );
+  }, [tasks, qualifyingGroupKeys]);
 
   // ── Handlers ─────────────────────────────────────────────────────
 
@@ -251,17 +283,54 @@ export default function App() {
   // Chips actuales para el banner. Si no hay filtros activos del modal, es array vacío.
   const modalChips = buildModalFilterChips({ search, filterPrioridad, filterArea, filterParada, filterAuditoria, filterPresupuesto, includeCancelled });
 
+  // ── Notificaciones: handlers del banner y del toggle "ver actualizadas" ──
+  // Cerrar con la X: pisa el checkpoint, no toca ningún filtro.
+  async function handleDismissNotifications() {
+    await touchCheckpoint();
+  }
+
+  // "Ver actualizadas": pisa el checkpoint, fuerza includeCancelled (para
+  // que las canceladas calificadas se vean aunque el checkbox esté apagado)
+  // recordando el valor previo, y activa el toggle de filtro.
+  async function handleViewUpdated() {
+    const result = await touchCheckpoint();
+    if (!result.ok) return;
+    prevIncludeCancelledRef.current = includeCancelled;
+    setIncludeCancelled(true);
+    setFilterUpdatedOnly(true);
+  }
+
+  // Salir del filtro: restaura includeCancelled al valor que tenía antes
+  // de activar "ver actualizadas". No vuelve a tocar el checkpoint (ya se
+  // pisó al entrar al modo).
+  function handleExitUpdatedFilter() {
+    setFilterUpdatedOnly(false);
+    setIncludeCancelled(prevIncludeCancelledRef.current);
+  }
+
   // ── Filtro de período del Kanban (independiente del Dashboard) ────
   // Se aplica SOLO al camino del Kanban: envuelve tasksInSection y recalcula
   // los counts de las columnas/tabs. El Dashboard sigue usando su propio
   // selector sobre `filtered`, asi que no hay doble filtrado.
-  const kanbanTasksInSection = (sectionId) => filterTasksByPeriod(tasksInSection(sectionId), period);
+  // Con "ver actualizadas" activo, se ignora el período (decisión: el
+  // criterio pasa a ser puramente el checkpoint) y se restringe a las
+  // solicitudes que califican. El resto de los filtros (área, prioridad,
+  // búsqueda, flags, presupuesto, incluir canceladas) ya están aplicados
+  // en `tasksInSection`/`filtered` — se combinan libremente.
+  const kanbanTasksInSection = (sectionId) => {
+    const base = tasksInSection(sectionId);
+    if (filterUpdatedOnly) return base.filter(t => updatedTaskIds.has(t.id));
+    return filterTasksByPeriod(base, period);
+  };
   const kanbanCounts = useMemo(() => {
     const c = {};
     SECTIONS.forEach(s => { c[s.id] = 0; });
-    filterTasksByPeriod(filtered, period).forEach(t => { if (c[t.section] !== undefined) c[t.section]++; });
+    const base = filterUpdatedOnly
+      ? filtered.filter(t => updatedTaskIds.has(t.id))
+      : filterTasksByPeriod(filtered, period);
+    base.forEach(t => { if (c[t.section] !== undefined) c[t.section]++; });
     return c;
-  }, [filtered, period]);
+  }, [filtered, period, filterUpdatedOnly, updatedTaskIds]);
 
   // ── Render ───────────────────────────────────────────────────────
 
@@ -396,6 +465,19 @@ export default function App() {
           <ImportarView onApplied={reload} />
         ) : (
           <>
+            {/* Notificaciones: banner "hay actualizaciones" (una vez por
+                sesión) y chip persistente mientras el filtro está activo. */}
+            {showNotifBanner && !filterUpdatedOnly && (
+              <NotificationBanner
+                summary={notifSummary}
+                onViewUpdated={handleViewUpdated}
+                onDismiss={handleDismissNotifications}
+              />
+            )}
+            {filterUpdatedOnly && (
+              <UpdatedFilterChip onExit={handleExitUpdatedFilter} />
+            )}
+
             {/* Filtro de período (independiente del Dashboard) */}
             <div className="mb-4 bg-white rounded-xl border border-slate-200 p-3">
               <div className="flex items-center gap-2 mb-2">
