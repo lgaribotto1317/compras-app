@@ -478,13 +478,24 @@ export default function App() {
               <UpdatedFilterChip onExit={handleExitUpdatedFilter} />
             )}
 
-            {/* Filtro de período (independiente del Dashboard) */}
-            <div className="mb-4 bg-white rounded-xl border border-slate-200 p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Calendar size={14} className="text-slate-400" />
-                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Período</span>
+            {/* Hero + selector de período en la misma fila (desktop).
+                El selector se oculta cuando "ver actualizadas" está activo
+                (en ese modo el período se ignora). En mobile, el selector
+                cae debajo del título. */}
+            <div className="mb-5 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-semibold text-slate-900 leading-tight">Flujo de compras</h2>
+                <p className="text-slate-500 text-sm mt-1">Gestión de solicitudes, RMAs y órdenes de compra</p>
               </div>
-              <PeriodSelector period={period} onChange={setPeriod} />
+              {!filterUpdatedOnly && (
+                <div className="shrink-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Calendar size={14} className="text-slate-400" />
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Período</span>
+                  </div>
+                  <PeriodSelector period={period} onChange={setPeriod} />
+                </div>
+              )}
             </div>
             {/* Banner de filtros activos (solo Kanban; en Dashboard se arma adentro
                 porque suma el chip de período del filtro de fechas). */}
