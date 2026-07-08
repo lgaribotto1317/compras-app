@@ -98,14 +98,6 @@ export function KanbanView({
 
   return (
     <>
-      {/* Hero desktop */}
-      <div className="hidden md:flex md:items-end md:justify-between mb-5">
-        <div>
-          <h2 className="text-2xl font-semibold text-slate-900 leading-tight">Flujo de compras</h2>
-          <p className="text-slate-500 text-sm mt-1">Gestión de solicitudes, RMAs y órdenes de compra</p>
-        </div>
-      </div>
-
       {/* MOBILE: una sola sección visible */}
       <div className="md:hidden">
         {(() => {
